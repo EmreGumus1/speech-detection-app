@@ -12,7 +12,7 @@ import { predictFile } from '../api/inference';
 
 export default function InferencePage() {
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
-  const [selectedModels, setSelectedModels] = React.useState<string[]>([
+  const [selectedModels] = React.useState<string[]>([
     'rawnet2_telco_v3',
   ]);
   const [results, setResults] = React.useState<any>(null);

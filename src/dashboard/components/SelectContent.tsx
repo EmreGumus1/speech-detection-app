@@ -12,6 +12,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DevicesRoundedIcon from '@mui/icons-material/DevicesRounded';
 import SmartphoneRoundedIcon from '@mui/icons-material/SmartphoneRounded';
 import ConstructionRoundedIcon from '@mui/icons-material/ConstructionRounded';
+import type { SelectChangeEvent } from '@mui/material/Select';
 
 const Avatar = styled(MuiAvatar)(({ theme }) => ({
   width: 28,
@@ -29,9 +30,9 @@ const ListItemAvatar = styled(MuiListItemAvatar)({
 export default function SelectContent() {
   const [company, setCompany] = React.useState('');
 
-  const handleChange = (event) => {
-    setCompany(event.target.value);
-  };
+const handleChange = (event: SelectChangeEvent<string>) => {
+  setCompany(event.target.value);
+};
 
   return (
     <Select

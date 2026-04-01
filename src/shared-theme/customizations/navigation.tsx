@@ -36,7 +36,7 @@ export const navigationCustomizations: Components<Theme> = {
           margin: '0 -8px',
         },
       },
-      paper: ({ theme }) => ({
+      paper: ({ theme }: { theme: Theme }) => ({
         marginTop: '4px',
         borderRadius: (theme.vars || theme).shape.borderRadius,
         border: `1px solid ${(theme.vars || theme).palette.divider}`,
@@ -150,7 +150,7 @@ export const navigationCustomizations: Components<Theme> = {
   },
   MuiDrawer: {
     styleOverrides: {
-      paper: ({ theme }) => ({
+      paper: ({ theme }: { theme: Theme }) => ({
         backgroundColor: (theme.vars || theme).palette.background.default,
       }),
     },

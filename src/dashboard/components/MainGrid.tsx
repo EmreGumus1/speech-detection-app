@@ -11,7 +11,17 @@ import PageViewsBarChart from './PageViewsBarChart';
 import SessionsChart from './SessionsChart';
 import StatCard from './StatCard';
 
-const data = [
+type StatTrend = 'up' | 'down' | 'neutral';
+
+type StatCardData = {
+  title: string;
+  value: string;
+  interval: string;
+  trend: StatTrend;
+  data: number[];
+};
+
+const data: StatCardData[] = [
   {
     title: 'Users',
     value: '14k',
@@ -46,39 +56,45 @@ const data = [
 
 export default function MainGrid() {
   return (
-    <Box sx={{ width: '100%', maxWidth: { sm: '100%', md: '1700px' } }}>
-      {/* cards */}
+    <Box sx={{ width: '100%', maxWidth: { xs: '100%', md: '1700px' } }}>
       <Typography component="h2" variant="h6" sx={{ mb: 2 }}>
         Overview
       </Typography>
+
       <Grid
         container
         spacing={2}
         columns={12}
         sx={{ mb: (theme) => theme.spacing(2) }}
       >
-        {data.map((card, index) => (
-          <Grid key={index} size={{ xs: 12, sm: 6, lg: 3 }}>
+        {data.map((card) => (
+          <Grid key={card.title} size={{ xs: 12, sm: 6, lg: 3 }}>
             <StatCard {...card} />
           </Grid>
         ))}
+
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <HighlightedCard />
         </Grid>
+
         <Grid size={{ xs: 12, md: 6 }}>
           <SessionsChart />
         </Grid>
+
         <Grid size={{ xs: 12, md: 6 }}>
           <PageViewsBarChart />
         </Grid>
       </Grid>
+
       <Typography component="h2" variant="h6" sx={{ mb: 2 }}>
         Details
       </Typography>
+
       <Grid container spacing={2} columns={12}>
         <Grid size={{ xs: 12, lg: 9 }}>
           <CustomizedDataGrid />
         </Grid>
+
         <Grid size={{ xs: 12, lg: 3 }}>
           <Stack gap={2} direction={{ xs: 'column', sm: 'row', lg: 'column' }}>
             <CustomizedTreeView />
@@ -86,6 +102,7 @@ export default function MainGrid() {
           </Stack>
         </Grid>
       </Grid>
+
       <Copyright sx={{ my: 4 }} />
     </Box>
   );

@@ -9,7 +9,11 @@ import { navigationCustomizations } from './customizations/navigation';
 import { surfacesCustomizations } from './customizations/surfaces';
 import { colorSchemes, typography, shadows, shape } from './themePrimitives';
 
-function AppTheme(props) {
+function AppTheme(props: {
+  children: React.ReactNode;
+  disableCustomTheme?: boolean;
+  themeComponents?: Record<string, unknown>;
+}) {
   const { children, disableCustomTheme, themeComponents } = props;
   const theme = React.useMemo(() => {
     return disableCustomTheme
