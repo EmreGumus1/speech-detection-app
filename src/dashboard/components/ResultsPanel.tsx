@@ -3,7 +3,7 @@ import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import type { InferenceResponse } from '../../api/inference';
+import type { InferenceResponse } from '../../api/mockInference';
 
 type ResultsPanelProps = {
   results: InferenceResponse | null;
@@ -31,6 +31,9 @@ export default function ResultsPanel({ results }: ResultsPanelProps) {
             <Typography variant="h6">Results</Typography>
             <Typography variant="body2" color="text.secondary">
               Experiment ID: {results.experiment_id}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Input Type: {results.input_type}
             </Typography>
             {results.file_name && (
               <Typography variant="body2" color="text.secondary">
