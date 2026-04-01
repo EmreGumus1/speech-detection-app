@@ -1,11 +1,21 @@
 import { useState } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { styled, createTheme, ThemeProvider } from '@mui/material/styles';
 import {
-  CssBaseline, Box, Toolbar, List, Typography, Divider, IconButton, 
-  ListItemButton, ListItemIcon, ListItemText
+  CssBaseline,
+  Box,
+  Toolbar,
+  List,
+  Typography,
+  Divider,
+  IconButton,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
-import MuiAppBar, { type AppBarProps as MuiAppBarProps } from '@mui/material/AppBar';
+import MuiAppBar, {
+  type AppBarProps as MuiAppBarProps,
+} from '@mui/material/AppBar';
 import MuiDrawer from '@mui/material/Drawer';
 import MenuIcon from '@mui/icons-material/Menu';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -20,7 +30,9 @@ interface AppBarProps extends MuiAppBarProps {
   open?: boolean;
 }
 
-const AppBar = styled(MuiAppBar, { shouldForwardProp: (prop) => prop !== 'open' })<AppBarProps>(({ theme, open }) => ({
+const AppBar = styled(MuiAppBar, {
+  shouldForwardProp: (prop) => prop !== 'open',
+})<AppBarProps>(({ theme, open }) => ({
   zIndex: theme.zIndex.drawer + 1,
   transition: theme.transitions.create(['width', 'margin'], {
     easing: theme.transitions.easing.sharp,
@@ -36,7 +48,9 @@ const AppBar = styled(MuiAppBar, { shouldForwardProp: (prop) => prop !== 'open' 
   }),
 }));
 
-const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' })(({ theme, open }) => ({
+const Drawer = styled(MuiDrawer, {
+  shouldForwardProp: (prop) => prop !== 'open',
+})(({ theme, open }) => ({
   '& .MuiDrawer-paper': {
     position: 'relative',
     whiteSpace: 'nowrap',
@@ -62,6 +76,7 @@ const defaultTheme = createTheme();
 export default function DashboardLayout() {
   const [open, setOpen] = useState(true);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const navItems = [
     { text: 'Inference', icon: <GraphicEqIcon />, path: '/' },
@@ -72,37 +87,78 @@ export default function DashboardLayout() {
 
   return (
     <ThemeProvider theme={defaultTheme}>
-      <Box sx={{ display: 'flex' }}>
+      <Box sx={{ display: 'flex', minHeight: '100vh' }}>
         <CssBaseline />
+
         <AppBar position="absolute" open={open}>
           <Toolbar sx={{ pr: '24px' }}>
-            <IconButton edge="start" color="inherit" onClick={() => setOpen(!open)} sx={{ marginRight: '36px', ...(open && { display: 'none' }) }}>
+            <IconButton
+              edge="start"
+              color="inherit"
+              aria-label="open drawer"
+              onClick={() => setOpen(true)}
+              sx={{
+                marginRight: '36px',
+                ...(open && { display: 'none' }),
+              }}
+            >
               <MenuIcon />
             </IconButton>
-            <Typography component="h1" variant="h6" color="inherit" noWrap sx={{ flexGrow: 1 }}>
+
+            <Typography
+              component="h1"
+              variant="h6"
+              color="inherit"
+              noWrap
+              sx={{ flexGrow: 1 }}
+            >
               Speech Detection Platform
             </Typography>
           </Toolbar>
         </AppBar>
+
         <Drawer variant="permanent" open={open}>
-          <Toolbar sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', px: [1] }}>
-            <IconButton onClick={() => setOpen(!open)}>
+          <Toolbar
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              px: 1,
+            }}
+          >
+            <IconButton onClick={() => setOpen(false)}>
               <ChevronLeftIcon />
             </IconButton>
           </Toolbar>
+
           <Divider />
+
           <List component="nav">
             {navItems.map((item) => (
-              <ListItemButton key={item.text} component={Link} to={item.path} selected={location.pathname === item.path}>
+              <ListItemButton
+                key={item.text}
+                selected={location.pathname === item.path}
+                onClick={() => navigate(item.path)}
+              >
                 <ListItemIcon>{item.icon}</ListItemIcon>
                 <ListItemText primary={item.text} />
               </ListItemButton>
             ))}
           </List>
         </Drawer>
-        <Box component="main" sx={{ flexGrow: 1, height: '100vh', overflow: 'auto', backgroundColor: '#f5f5f5' }}>
+
+        <Box
+          component="main"
+          sx={{
+            flexGrow: 1,
+            minHeight: '100vh',
+            overflow: 'auto',
+            backgroundColor: '#f5f5f5',
+            p: 3,
+          }}
+        >
           <Toolbar />
-          <Outlet /> 
+          <Outlet />
         </Box>
       </Box>
     </ThemeProvider>

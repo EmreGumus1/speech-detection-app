@@ -55,7 +55,7 @@ export default function InferencePage() {
               onFileSelect={setSelectedFile}
               onRunInference={handleRunInference}
               isSubmitting={isSubmitting}
-              disabled={selectedModels.length === 0}
+              disabled={selectedModels.length === 1}
             />
             <ResultsPanel results={results} />
           </Stack>
