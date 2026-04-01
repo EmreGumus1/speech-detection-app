@@ -10,32 +10,38 @@ import AudioFileRoundedIcon from '@mui/icons-material/AudioFileRounded';
 import MicRoundedIcon from '@mui/icons-material/MicRounded';
 import ScreenShareRoundedIcon from '@mui/icons-material/ScreenShareRounded';
 import HubRoundedIcon from '@mui/icons-material/HubRounded';
-import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
-import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded';
+import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
+import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const inferenceItems = [
-  { text: 'Inference Dashboard', icon: <DashboardRoundedIcon /> },
-  { text: 'File Upload', icon: <AudioFileRoundedIcon /> },
-  { text: 'Microphone Input', icon: <MicRoundedIcon /> },
-  { text: 'System Audio Capture', icon: <ScreenShareRoundedIcon /> },
+  { text: 'Dashboard', icon: <DashboardRoundedIcon />, path: '/inference' },
+  { text: 'File Upload', icon: <AudioFileRoundedIcon />, path: '/inference/file' },
+  { text: 'Microphone Input', icon: <MicRoundedIcon />, path: '/inference/mic' },
+  { text: 'System Audio Capture', icon: <ScreenShareRoundedIcon />, path: '/inference/system-audio' },
 ];
 
 const researchItems = [
-  { text: 'Models', icon: <HubRoundedIcon /> },
-  { text: 'Model Comparison', icon: <CompareArrowsRoundedIcon /> },
-  { text: 'Experiments', icon: <ScienceRoundedIcon /> },
+  { text: 'Models', icon: <HubRoundedIcon />, path: '/models' },
+  { text: 'Model Comparison', icon: <CompareArrowsRoundedIcon />, path: '/models' },
+  { text: 'Experiments', icon: <ScienceRoundedIcon />, path: '/experiments' },
 ];
 
 const adminItems = [
-  { text: 'Upload Model Bundle', icon: <CloudUploadRoundedIcon /> },
-  { text: 'Settings', icon: <SettingsRoundedIcon /> },
-  { text: 'About Project', icon: <InfoRoundedIcon /> },
+  { text: 'Upload Model Bundle', icon: <CloudUploadRoundedIcon />, path: '/models' },
+  { text: 'Settings', icon: <SettingsRoundedIcon />, path: '/settings' },
+  { text: 'About Project', icon: <InfoRoundedIcon />, path: '/settings' },
 ];
 
 export default function MenuContent() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const isSelected = (path: string) => location.pathname === path;
+
   return (
     <Stack sx={{ flexGrow: 1, p: 1, justifyContent: 'space-between' }}>
       <Stack spacing={2}>
@@ -47,9 +53,12 @@ export default function MenuContent() {
             </ListSubheader>
           }
         >
-          {inferenceItems.map((item, index) => (
+          {inferenceItems.map((item) => (
             <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
-              <ListItemButton selected={index === 0}>
+              <ListItemButton
+                selected={isSelected(item.path)}
+                onClick={() => navigate(item.path)}
+              >
                 <ListItemIcon>{item.icon}</ListItemIcon>
                 <ListItemText primary={item.text} />
               </ListItemButton>
@@ -67,7 +76,10 @@ export default function MenuContent() {
         >
           {researchItems.map((item) => (
             <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
-              <ListItemButton>
+              <ListItemButton
+                selected={isSelected(item.path)}
+                onClick={() => navigate(item.path)}
+              >
                 <ListItemIcon>{item.icon}</ListItemIcon>
                 <ListItemText primary={item.text} />
               </ListItemButton>
@@ -86,7 +98,10 @@ export default function MenuContent() {
       >
         {adminItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
-            <ListItemButton>
+            <ListItemButton
+              selected={isSelected(item.path)}
+              onClick={() => navigate(item.path)}
+            >
               <ListItemIcon>{item.icon}</ListItemIcon>
               <ListItemText primary={item.text} />
             </ListItemButton>
