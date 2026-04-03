@@ -8,7 +8,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import ResultsPanel from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
-import { mockPredictAudio } from '../api/mockInference';
+import { predictFile } from '../api/inference';
 
 function getSupportedMimeType() {
   if (typeof MediaRecorder === 'undefined') return '';
@@ -27,7 +27,7 @@ function getSupportedMimeType() {
 function getFileExtensionFromMimeType(mimeType: string) {
   if (mimeType.includes('mp4')) return 'mp4';
   if (mimeType.includes('webm')) return 'webm';
-  return 'bin';
+  return 'wav';
 }
 
 export default function MicInferencePage() {
@@ -119,14 +119,11 @@ export default function MicInferencePage() {
       setError(null);
 
       const extension = getFileExtensionFromMimeType(recordingMimeType);
-
-      const data = await mockPredictAudio({
-        inputType: 'microphone',
-        fileName: `microphone_recording.${extension}`,
-        durationSec,
-        modelIds: selectedModels,
+      const file = new File([audioBlob], `microphone_recording.${extension}`, {
+        type: recordingMimeType || audioBlob.type || 'audio/mp4',
       });
 
+      const data = await predictFile(file);
       setResults(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Prediction failed');
