@@ -10,6 +10,26 @@ import ResultsPanel from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
 import { mockPredictAudio } from '../api/mockInference';
 
+function getSupportedMimeType() {
+  if (typeof MediaRecorder === 'undefined') return '';
+
+  const preferredMimeTypes = [
+    'audio/mp4',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+  ];
+
+  return (
+    preferredMimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || ''
+  );
+}
+
+function getFileExtensionFromMimeType(mimeType: string) {
+  if (mimeType.includes('mp4')) return 'mp4';
+  if (mimeType.includes('webm')) return 'webm';
+  return 'bin';
+}
+
 export default function MicInferencePage() {
   const [selectedModels, setSelectedModels] = React.useState<string[]>([
     'rawnet2_telco_v3',
@@ -21,17 +41,36 @@ export default function MicInferencePage() {
   const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   const [durationSec, setDurationSec] = React.useState(0);
+  const [recordingMimeType, setRecordingMimeType] = React.useState('');
 
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
   const startTimeRef = React.useRef<number | null>(null);
 
+  const clearPreviousRecording = () => {
+    setAudioBlob(null);
+    setDurationSec(0);
+    setResults(null);
+
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+    setAudioUrl(null);
+  };
+
   const handleStartRecording = async () => {
     try {
       setError(null);
+      clearPreviousRecording();
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const recorder = new MediaRecorder(stream);
+      const supportedMimeType = getSupportedMimeType();
+      const recorder = supportedMimeType
+        ? new MediaRecorder(stream, { mimeType: supportedMimeType })
+        : new MediaRecorder(stream);
+
+      setRecordingMimeType(supportedMimeType || recorder.mimeType || '');
       chunksRef.current = [];
       startTimeRef.current = Date.now();
 
@@ -42,7 +81,10 @@ export default function MicInferencePage() {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const finalMimeType =
+          supportedMimeType || recorder.mimeType || 'audio/mp4';
+
+        const blob = new Blob(chunksRef.current, { type: finalMimeType });
         setAudioBlob(blob);
 
         const url = URL.createObjectURL(blob);
@@ -59,7 +101,7 @@ export default function MicInferencePage() {
       mediaRecorderRef.current = recorder;
       recorder.start();
       setIsRecording(true);
-    } catch (err) {
+    } catch {
       setError('Microphone permission denied or unavailable.');
     }
   };
@@ -76,9 +118,11 @@ export default function MicInferencePage() {
       setIsSubmitting(true);
       setError(null);
 
+      const extension = getFileExtensionFromMimeType(recordingMimeType);
+
       const data = await mockPredictAudio({
         inputType: 'microphone',
-        fileName: 'microphone_recording.webm',
+        fileName: `microphone_recording.${extension}`,
         durationSec,
         modelIds: selectedModels,
       });
@@ -90,6 +134,14 @@ export default function MicInferencePage() {
       setIsSubmitting(false);
     }
   };
+
+  React.useEffect(() => {
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+    };
+  }, [audioUrl]);
 
   return (
     <Stack spacing={2}>
@@ -136,14 +188,20 @@ export default function MicInferencePage() {
                     Duration: {durationSec.toFixed(1)} sec
                   </Typography>
 
-                  {audioUrl && (
-                    <audio controls src={audioUrl} />
+                  {recordingMimeType && (
+                    <Typography variant="body2" color="text.secondary">
+                      Format: {recordingMimeType}
+                    </Typography>
                   )}
+
+                  {audioUrl && <audio controls src={audioUrl} />}
 
                   <Button
                     variant="contained"
                     onClick={handleRunInference}
-                    disabled={!audioBlob || isSubmitting || selectedModels.length === 0}
+                    disabled={
+                      !audioBlob || isSubmitting || selectedModels.length === 0
+                    }
                   >
                     {isSubmitting ? 'Running inference...' : 'Run inference'}
                   </Button>
