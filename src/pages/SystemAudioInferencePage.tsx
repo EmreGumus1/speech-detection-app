@@ -10,6 +10,26 @@ import ResultsPanel from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
 import { mockPredictAudio } from '../api/mockInference';
 
+function getSupportedMimeType() {
+  if (typeof MediaRecorder === 'undefined') return '';
+
+  const preferredMimeTypes = [
+    'audio/mp4',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+  ];
+
+  return (
+    preferredMimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || ''
+  );
+}
+
+function getFileExtensionFromMimeType(mimeType: string) {
+  if (mimeType.includes('mp4')) return 'mp4';
+  if (mimeType.includes('webm')) return 'webm';
+  return 'bin';
+}
+
 export default function SystemAudioInferencePage() {
   const [selectedModels, setSelectedModels] = React.useState<string[]>([
     'rawnet2_telco_v3',
@@ -21,15 +41,35 @@ export default function SystemAudioInferencePage() {
   const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   const [durationSec, setDurationSec] = React.useState(0);
+  const [recordingMimeType, setRecordingMimeType] = React.useState('');
 
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
   const startTimeRef = React.useRef<number | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
 
+  const clearPreviousCapture = () => {
+    setAudioBlob(null);
+    setDurationSec(0);
+    setResults(null);
+
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+    setAudioUrl(null);
+  };
+
+  const cleanupStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  };
+
   const handleStartCapture = async () => {
     try {
       setError(null);
+      clearPreviousCapture();
 
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -37,7 +77,13 @@ export default function SystemAudioInferencePage() {
       });
 
       streamRef.current = stream;
-      const recorder = new MediaRecorder(stream);
+
+      const supportedMimeType = getSupportedMimeType();
+      const recorder = supportedMimeType
+        ? new MediaRecorder(stream, { mimeType: supportedMimeType })
+        : new MediaRecorder(stream);
+
+      setRecordingMimeType(supportedMimeType || recorder.mimeType || '');
       chunksRef.current = [];
       startTimeRef.current = Date.now();
 
@@ -48,7 +94,10 @@ export default function SystemAudioInferencePage() {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const finalMimeType =
+          supportedMimeType || recorder.mimeType || 'audio/mp4';
+
+        const blob = new Blob(chunksRef.current, { type: finalMimeType });
         setAudioBlob(blob);
 
         const url = URL.createObjectURL(blob);
@@ -59,14 +108,15 @@ export default function SystemAudioInferencePage() {
           setDurationSec(Number(seconds.toFixed(1)));
         }
 
-        stream.getTracks().forEach((track) => track.stop());
+        cleanupStream();
       };
 
       mediaRecorderRef.current = recorder;
       recorder.start();
       setIsCapturing(true);
-    } catch (err) {
+    } catch {
       setError('System or browser audio capture was denied or unavailable.');
+      cleanupStream();
     }
   };
 
@@ -82,9 +132,11 @@ export default function SystemAudioInferencePage() {
       setIsSubmitting(true);
       setError(null);
 
+      const extension = getFileExtensionFromMimeType(recordingMimeType);
+
       const data = await mockPredictAudio({
         inputType: 'system_audio',
-        fileName: 'system_audio_capture.webm',
+        fileName: `system_audio_capture.${extension}`,
         durationSec,
         modelIds: selectedModels,
       });
@@ -96,6 +148,15 @@ export default function SystemAudioInferencePage() {
       setIsSubmitting(false);
     }
   };
+
+  React.useEffect(() => {
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+      cleanupStream();
+    };
+  }, [audioUrl]);
 
   return (
     <Stack spacing={2}>
@@ -142,14 +203,20 @@ export default function SystemAudioInferencePage() {
                     Duration: {durationSec.toFixed(1)} sec
                   </Typography>
 
-                  {audioUrl && (
-                    <audio controls src={audioUrl} />
+                  {recordingMimeType && (
+                    <Typography variant="body2" color="text.secondary">
+                      Format: {recordingMimeType}
+                    </Typography>
                   )}
+
+                  {audioUrl && <audio controls src={audioUrl} />}
 
                   <Button
                     variant="contained"
                     onClick={handleRunInference}
-                    disabled={!audioBlob || isSubmitting || selectedModels.length === 0}
+                    disabled={
+                      !audioBlob || isSubmitting || selectedModels.length === 0
+                    }
                   >
                     {isSubmitting ? 'Running inference...' : 'Run inference'}
                   </Button>
