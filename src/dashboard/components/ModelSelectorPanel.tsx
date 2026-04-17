@@ -20,21 +20,9 @@ type ModelSelectorPanelProps = {
 
 const availableModels: ModelItem[] = [
   {
-    id: 'rawnet2_telco_v3',
-    name: 'RawNet2 Telco v3',
+    id: 'moe_lcnn_v1',
+    name: 'MoE LCNN v1',
     framework: 'PyTorch',
-    supportsRealtime: true,
-  },
-  {
-    id: 'wav2vec_detector_v1',
-    name: 'Wav2Vec Detector v1',
-    framework: 'PyTorch',
-    supportsRealtime: false,
-  },
-  {
-    id: 'onnx_fast_detector',
-    name: 'ONNX Fast Detector',
-    framework: 'ONNX',
     supportsRealtime: true,
   },
 ];

@@ -6,139 +6,119 @@ import CardContent from '@mui/material/CardContent';
 import Grid from '@mui/material/Grid';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import ResultsPanel from '../dashboard/components/ResultsPanel';
+import ResultsPanel, { type ChunkResult } from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
-import { predictFile } from '../api/inference';
+import { createRealtimeSession } from '../api/inference';
+import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 
-function getSupportedMimeType() {
-  if (typeof MediaRecorder === 'undefined') return '';
-
-  const preferredMimeTypes = [
-    'audio/mp4',
-    'audio/webm;codecs=opus',
-    'audio/webm',
-  ];
-
-  return (
-    preferredMimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || ''
-  );
-}
-
-function getFileExtensionFromMimeType(mimeType: string) {
-  if (mimeType.includes('mp4')) return 'mp4';
-  if (mimeType.includes('webm')) return 'webm';
-  return 'wav';
-}
+const CHUNK_DURATION_SEC = 3;
 
 export default function MicInferencePage() {
-  const [selectedModels, setSelectedModels] = React.useState<string[]>([
-    'rawnet2_telco_v3',
-  ]);
-  const [results, setResults] = React.useState<any>(null);
+  const [selectedModels, setSelectedModels] = React.useState<string[]>(['moe_lcnn_v1']);
+  const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
   const [error, setError] = React.useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
-  const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   const [durationSec, setDurationSec] = React.useState(0);
-  const [recordingMimeType, setRecordingMimeType] = React.useState('');
 
-  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
-  const chunksRef = React.useRef<Blob[]>([]);
+  const sessionRef = React.useRef<ReturnType<typeof createRealtimeSession> | null>(null);
+  const recorderRef = React.useRef<PcmStreamRecorder | null>(null);
+  const streamRef = React.useRef<MediaStream | null>(null);
   const startTimeRef = React.useRef<number | null>(null);
+  const audioUrlRef = React.useRef<string | null>(null);
 
-  const clearPreviousRecording = () => {
-    setAudioBlob(null);
-    setDurationSec(0);
-    setResults(null);
-
-    if (audioUrl) {
-      URL.revokeObjectURL(audioUrl);
-    }
-    setAudioUrl(null);
+  const cleanupStream = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
   };
 
   const handleStartRecording = async () => {
     try {
       setError(null);
-      clearPreviousRecording();
+      setChunks([]);
+      setDurationSec(0);
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+      setAudioUrl(null);
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
 
-      const supportedMimeType = getSupportedMimeType();
-      const recorder = supportedMimeType
-        ? new MediaRecorder(stream, { mimeType: supportedMimeType })
-        : new MediaRecorder(stream);
+      sessionRef.current = createRealtimeSession(
+        selectedModels[0],
+        (data) => {
+          const payload = data as {
+            duration_sec?: number;
+            results?: ChunkResult['results'];
+            error?: string;
+          };
+          if (payload.error) {
+            console.warn('Backend chunk error:', payload.error);
+            setError(payload.error);
+            return;
+          }
+          if (!payload.results) return;
+          setChunks((prev) => {
+            const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
+            return [
+              ...prev,
+              {
+                index: prev.length,
+                startSec,
+                durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
+                results: payload.results!,
+              },
+            ];
+          });
+        },
+        (err) => {
+          console.error('WebSocket error:', err);
+          setError('Streaming inference connection error');
+        },
+      );
 
-      setRecordingMimeType(supportedMimeType || recorder.mimeType || '');
-      chunksRef.current = [];
+      const recorder = createPcmStreamRecorder(stream, CHUNK_DURATION_SEC, (wavBlob) => {
+        void sessionRef.current?.send(wavBlob);
+      });
+      recorderRef.current = recorder;
       startTimeRef.current = Date.now();
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        const finalMimeType =
-          supportedMimeType || recorder.mimeType || 'audio/mp4';
-
-        const blob = new Blob(chunksRef.current, { type: finalMimeType });
-        setAudioBlob(blob);
-
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-
-        if (startTimeRef.current) {
-          const seconds = (Date.now() - startTimeRef.current) / 1000;
-          setDurationSec(Number(seconds.toFixed(1)));
-        }
-
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorderRef.current = recorder;
       recorder.start();
       setIsRecording(true);
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError('Microphone permission denied or unavailable.');
     }
   };
 
   const handleStopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
-  };
+    recorderRef.current?.stop();
 
-  const handleRunInference = async () => {
-    if (!audioBlob || selectedModels.length === 0) return;
-
-    try {
-      setIsSubmitting(true);
-      setError(null);
-
-      const extension = getFileExtensionFromMimeType(recordingMimeType);
-      const file = new File([audioBlob], `microphone_recording.${extension}`, {
-        type: recordingMimeType || audioBlob.type || 'audio/mp4',
-      });
-
-      const data = await predictFile(file);
-      setResults(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Prediction failed');
-    } finally {
-      setIsSubmitting(false);
+    if (startTimeRef.current) {
+      setDurationSec(Number(((Date.now() - startTimeRef.current) / 1000).toFixed(1)));
     }
+    const combined = recorderRef.current?.getCombinedWav();
+    if (combined) {
+      const url = URL.createObjectURL(combined);
+      audioUrlRef.current = url;
+      setAudioUrl(url);
+    }
+
+    cleanupStream();
+    setIsRecording(false);
+    // Allow tail chunk's response to come back before closing
+    setTimeout(() => sessionRef.current?.close(), 1500);
   };
 
   React.useEffect(() => {
     return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      sessionRef.current?.close();
+      recorderRef.current?.stop();
+      cleanupStream();
     };
-  }, [audioUrl]);
+  }, []);
 
   return (
     <Stack spacing={2}>
@@ -147,7 +127,7 @@ export default function MicInferencePage() {
           Microphone Input
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Record audio from the microphone and run inference.
+          Record audio — inference runs every {CHUNK_DURATION_SEC} seconds and results aggregate live.
         </Typography>
       </div>
 
@@ -160,15 +140,12 @@ export default function MicInferencePage() {
               <CardContent>
                 <Stack spacing={2}>
                   <Typography variant="h6">Microphone Capture</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Record a microphone sample, then run inference on it.
-                  </Typography>
 
                   <Stack direction="row" spacing={2}>
                     <Button
                       variant="contained"
                       onClick={handleStartRecording}
-                      disabled={isRecording}
+                      disabled={isRecording || selectedModels.length === 0}
                     >
                       Start Recording
                     </Button>
@@ -185,28 +162,12 @@ export default function MicInferencePage() {
                     Duration: {durationSec.toFixed(1)} sec
                   </Typography>
 
-                  {recordingMimeType && (
-                    <Typography variant="body2" color="text.secondary">
-                      Format: {recordingMimeType}
-                    </Typography>
-                  )}
-
                   {audioUrl && <audio controls src={audioUrl} />}
-
-                  <Button
-                    variant="contained"
-                    onClick={handleRunInference}
-                    disabled={
-                      !audioBlob || isSubmitting || selectedModels.length === 0
-                    }
-                  >
-                    {isSubmitting ? 'Running inference...' : 'Run inference'}
-                  </Button>
                 </Stack>
               </CardContent>
             </Card>
 
-            <ResultsPanel results={results} />
+            <ResultsPanel chunks={chunks} isStreaming={isRecording} />
           </Stack>
         </Grid>
 

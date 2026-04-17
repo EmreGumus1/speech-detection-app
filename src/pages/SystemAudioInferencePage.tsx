@@ -6,157 +6,125 @@ import CardContent from '@mui/material/CardContent';
 import Grid from '@mui/material/Grid';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import ResultsPanel from '../dashboard/components/ResultsPanel';
+import ResultsPanel, { type ChunkResult } from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
-import { mockPredictAudio } from '../api/mockInference';
+import { createRealtimeSession } from '../api/inference';
+import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 
-function getSupportedMimeType() {
-  if (typeof MediaRecorder === 'undefined') return '';
-
-  const preferredMimeTypes = [
-    'audio/mp4',
-    'audio/webm;codecs=opus',
-    'audio/webm',
-  ];
-
-  return (
-    preferredMimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || ''
-  );
-}
-
-function getFileExtensionFromMimeType(mimeType: string) {
-  if (mimeType.includes('mp4')) return 'mp4';
-  if (mimeType.includes('webm')) return 'webm';
-  return 'bin';
-}
+const CHUNK_DURATION_SEC = 3;
 
 export default function SystemAudioInferencePage() {
-  const [selectedModels, setSelectedModels] = React.useState<string[]>([
-    'rawnet2_telco_v3',
-  ]);
-  const [results, setResults] = React.useState<any>(null);
+  const [selectedModels, setSelectedModels] = React.useState<string[]>(['moe_lcnn_v1']);
+  const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
   const [error, setError] = React.useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isCapturing, setIsCapturing] = React.useState(false);
-  const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   const [durationSec, setDurationSec] = React.useState(0);
-  const [recordingMimeType, setRecordingMimeType] = React.useState('');
 
-  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
-  const chunksRef = React.useRef<Blob[]>([]);
-  const startTimeRef = React.useRef<number | null>(null);
+  const sessionRef = React.useRef<ReturnType<typeof createRealtimeSession> | null>(null);
+  const recorderRef = React.useRef<PcmStreamRecorder | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
-
-  const clearPreviousCapture = () => {
-    setAudioBlob(null);
-    setDurationSec(0);
-    setResults(null);
-
-    if (audioUrl) {
-      URL.revokeObjectURL(audioUrl);
-    }
-    setAudioUrl(null);
-  };
+  const startTimeRef = React.useRef<number | null>(null);
+  const audioUrlRef = React.useRef<string | null>(null);
 
   const cleanupStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
   };
 
   const handleStartCapture = async () => {
     try {
       setError(null);
-      clearPreviousCapture();
+      setChunks([]);
+      setDurationSec(0);
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+      setAudioUrl(null);
 
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-      });
-
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       streamRef.current = stream;
 
-      const supportedMimeType = getSupportedMimeType();
-      const recorder = supportedMimeType
-        ? new MediaRecorder(stream, { mimeType: supportedMimeType })
-        : new MediaRecorder(stream);
-
-      setRecordingMimeType(supportedMimeType || recorder.mimeType || '');
-      chunksRef.current = [];
-      startTimeRef.current = Date.now();
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        const finalMimeType =
-          supportedMimeType || recorder.mimeType || 'audio/mp4';
-
-        const blob = new Blob(chunksRef.current, { type: finalMimeType });
-        setAudioBlob(blob);
-
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-
-        if (startTimeRef.current) {
-          const seconds = (Date.now() - startTimeRef.current) / 1000;
-          setDurationSec(Number(seconds.toFixed(1)));
-        }
-
+      if (stream.getAudioTracks().length === 0) {
         cleanupStream();
-      };
+        setError('Selected source has no audio. Pick a tab/window with sound and tick "Share audio".');
+        return;
+      }
 
-      mediaRecorderRef.current = recorder;
+      sessionRef.current = createRealtimeSession(
+        selectedModels[0],
+        (data) => {
+          const payload = data as {
+            duration_sec?: number;
+            results?: ChunkResult['results'];
+            error?: string;
+          };
+          if (payload.error) {
+            console.warn('Backend chunk error:', payload.error);
+            setError(payload.error);
+            return;
+          }
+          if (!payload.results) return;
+          setChunks((prev) => {
+            const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
+            return [
+              ...prev,
+              {
+                index: prev.length,
+                startSec,
+                durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
+                results: payload.results!,
+              },
+            ];
+          });
+        },
+        (err) => {
+          console.error('WebSocket error:', err);
+          setError('Streaming inference connection error');
+        },
+      );
+
+      const recorder = createPcmStreamRecorder(stream, CHUNK_DURATION_SEC, (wavBlob) => {
+        void sessionRef.current?.send(wavBlob);
+      });
+      recorderRef.current = recorder;
+      startTimeRef.current = Date.now();
       recorder.start();
       setIsCapturing(true);
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError('System or browser audio capture was denied or unavailable.');
       cleanupStream();
     }
   };
 
   const handleStopCapture = () => {
-    mediaRecorderRef.current?.stop();
-    setIsCapturing(false);
-  };
+    recorderRef.current?.stop();
 
-  const handleRunInference = async () => {
-    if (!audioBlob || selectedModels.length === 0) return;
-
-    try {
-      setIsSubmitting(true);
-      setError(null);
-
-      const extension = getFileExtensionFromMimeType(recordingMimeType);
-
-      const data = await mockPredictAudio({
-        inputType: 'system_audio',
-        fileName: `system_audio_capture.${extension}`,
-        durationSec,
-        modelIds: selectedModels,
-      });
-
-      setResults(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Prediction failed');
-    } finally {
-      setIsSubmitting(false);
+    if (startTimeRef.current) {
+      setDurationSec(Number(((Date.now() - startTimeRef.current) / 1000).toFixed(1)));
     }
+    const combined = recorderRef.current?.getCombinedWav();
+    if (combined) {
+      const url = URL.createObjectURL(combined);
+      audioUrlRef.current = url;
+      setAudioUrl(url);
+    }
+
+    cleanupStream();
+    setIsCapturing(false);
+    setTimeout(() => sessionRef.current?.close(), 1500);
   };
 
   React.useEffect(() => {
     return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      sessionRef.current?.close();
+      recorderRef.current?.stop();
       cleanupStream();
     };
-  }, [audioUrl]);
+  }, []);
 
   return (
     <Stack spacing={2}>
@@ -165,7 +133,7 @@ export default function SystemAudioInferencePage() {
           System Audio Capture
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Capture browser, tab, or system audio and run inference.
+          Capture browser, tab, or system audio — inference runs every {CHUNK_DURATION_SEC} seconds.
         </Typography>
       </div>
 
@@ -179,14 +147,14 @@ export default function SystemAudioInferencePage() {
                 <Stack spacing={2}>
                   <Typography variant="h6">Audio Source Capture</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Start capture, choose a tab/window/screen, then stop and run inference.
+                    Start capture, choose a tab/window/screen with sound, then stop when done.
                   </Typography>
 
                   <Stack direction="row" spacing={2}>
                     <Button
                       variant="contained"
                       onClick={handleStartCapture}
-                      disabled={isCapturing}
+                      disabled={isCapturing || selectedModels.length === 0}
                     >
                       Start Capture
                     </Button>
@@ -203,28 +171,12 @@ export default function SystemAudioInferencePage() {
                     Duration: {durationSec.toFixed(1)} sec
                   </Typography>
 
-                  {recordingMimeType && (
-                    <Typography variant="body2" color="text.secondary">
-                      Format: {recordingMimeType}
-                    </Typography>
-                  )}
-
                   {audioUrl && <audio controls src={audioUrl} />}
-
-                  <Button
-                    variant="contained"
-                    onClick={handleRunInference}
-                    disabled={
-                      !audioBlob || isSubmitting || selectedModels.length === 0
-                    }
-                  >
-                    {isSubmitting ? 'Running inference...' : 'Run inference'}
-                  </Button>
                 </Stack>
               </CardContent>
             </Card>
 
-            <ResultsPanel results={results} />
+            <ResultsPanel chunks={chunks} isStreaming={isCapturing} />
           </Stack>
         </Grid>
 
