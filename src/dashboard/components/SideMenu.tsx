@@ -1,14 +1,14 @@
 import { styled } from '@mui/material/styles';
-import Avatar from '@mui/material/Avatar';
 import MuiDrawer, { drawerClasses } from '@mui/material/Drawer';
 import Box from '@mui/material/Box';
 import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import SelectContent from './SelectContent';
+import GraphicEqRoundedIcon from '@mui/icons-material/GraphicEqRounded';
 import MenuContent from './MenuContent';
 import CardAlert from './CardAlert';
 import OptionsMenu from './OptionsMenu';
+import Avatar from '@mui/material/Avatar';
 
 const drawerWidth = 240;
 
@@ -37,11 +37,16 @@ export default function SideMenu() {
       <Box
         sx={{
           display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
           mt: 'calc(var(--template-frame-height, 0px) + 4px)',
           p: 1.5,
         }}
       >
-        <SelectContent />
+        <GraphicEqRoundedIcon color="primary" />
+        <Typography variant="subtitle1" fontWeight={600}>
+          Speech Detection
+        </Typography>
       </Box>
       <Divider />
       <Box
@@ -67,16 +72,12 @@ export default function SideMenu() {
       >
         <Avatar
           sizes="small"
-          alt="test"
-          src="/static/images/avatar/7.jpg"
+          alt="User"
           sx={{ width: 36, height: 36 }}
         />
         <Box sx={{ mr: 'auto' }}>
           <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: '16px' }}>
-            test
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            test@email.com
+            Admin
           </Typography>
         </Box>
         <OptionsMenu />
