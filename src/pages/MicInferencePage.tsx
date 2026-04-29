@@ -13,7 +13,7 @@ import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
 import { createRealtimeSession } from '../api/inference';
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 
-const CHUNK_DURATION_SEC = 3;
+const CHUNK_DURATION_SEC = 1;
 
 export default function MicInferencePage() {
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
