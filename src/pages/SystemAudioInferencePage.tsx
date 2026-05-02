@@ -13,6 +13,8 @@ import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
@@ -26,7 +28,8 @@ import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStr
 import { aggregateChunks } from '../utils/aggregateChunks';
 
 const CHUNK_DURATION_SEC = 3;
-const SYNTHETIC_ALERT_THRESHOLD = 0.7; // Alert if any model's avg synthetic probability exceeds this
+const SYNTHETIC_ALERT_THRESHOLD = 0.2; // Alert if any model's avg synthetic probability exceeds this
+const ALERT_COOLDOWN_MS = 5_000;       // Re-fire alert every N ms while still above threshold
 
 export default function SystemAudioInferencePage() {
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
@@ -39,36 +42,59 @@ export default function SystemAudioInferencePage() {
 
   const [alertOpen, setAlertOpen] = React.useState(false);
   const [alertMsg, setAlertMsg] = React.useState('');
+  const [alertKey, setAlertKey] = React.useState(0);
+  const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
 
   const sessionRef = React.useRef<ReturnType<typeof createRealtimeSession> | null>(null);
   const recorderRef = React.useRef<PcmStreamRecorder | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const wasAboveThresholdRef = React.useRef(false);
+  const lastAlertTimeRef = React.useRef(0);
 
   const aggregated = React.useMemo(() => aggregateChunks(chunks), [chunks]);
 
-  // Detect threshold crossings (any model's avg crosses upward)
+  // Re-fire alert on every crossing AND every ALERT_COOLDOWN_MS while still above threshold
   React.useEffect(() => {
+    if (!notificationsEnabled) return;
     if (aggregated.length === 0) return;
-    const triggered = aggregated.find((row) => row.avgSyntheticProb >= SYNTHETIC_ALERT_THRESHOLD);
-    if (triggered && !wasAboveThresholdRef.current) {
-      wasAboveThresholdRef.current = true;
-      const msg = `Synthetic speech detected — ${triggered.modelName} avg ${(triggered.avgSyntheticProb * 100).toFixed(0)}%`;
-      setAlertMsg(msg);
-      setAlertOpen(true);
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        try {
-          new Notification('Synthetic audio alert', { body: msg });
-        } catch (err) {
-          console.warn('Notification failed:', err);
-        }
-      }
-    } else if (!triggered && wasAboveThresholdRef.current) {
-      // Dropped back below — re-arm so a future crossing fires again
-      wasAboveThresholdRef.current = false;
+    const triggered = aggregated.filter((row) => row.avgSyntheticProb >= SYNTHETIC_ALERT_THRESHOLD);
+
+    if (triggered.length === 0) {
+      // Below threshold — reset cooldown so the next crossing fires immediately
+      lastAlertTimeRef.current = 0;
+      return;
     }
-  }, [aggregated]);
+
+    const now = Date.now();
+    if (now - lastAlertTimeRef.current < ALERT_COOLDOWN_MS) return;
+    lastAlertTimeRef.current = now;
+
+    const summary = triggered
+      .map((r) => `${r.modelName} ${(r.avgSyntheticProb * 100).toFixed(0)}%`)
+      .join(', ');
+    const msg = `Synthetic speech detected — ${summary}`;
+    setAlertMsg(msg);
+    setAlertOpen(true);
+    setAlertKey((k) => k + 1); // forces Snackbar remount → autoHide timer resets
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        const n = new Notification('Synthetic audio alert', {
+          body: msg,
+          tag: 'synthetic-audio-alert', // OS replaces previous notification with same tag
+          // `renotify` is in the spec but missing from TS's NotificationOptions; cast to access it.
+          // Forces the toast to re-pop instead of silently updating the existing notification.
+          ...({ renotify: true } as Record<string, unknown>),
+        });
+        n.onclick = () => {
+          window.focus();
+          n.close();
+        };
+      } catch (err) {
+        console.warn('Notification failed:', err);
+      }
+    }
+  }, [aggregated, notificationsEnabled]);
 
   const requestNotificationPermission = () => {
     if (typeof Notification === 'undefined') return;
@@ -105,6 +131,8 @@ export default function SystemAudioInferencePage() {
     // Drop video tracks — we only need audio
     stream.getVideoTracks().forEach((t) => t.stop());
 
+    requestNotificationPermission();
+
     sessionRef.current = createRealtimeSession(
       selectedModels[0],
       (data) => {
@@ -135,8 +163,7 @@ export default function SystemAudioInferencePage() {
   const handleStartDisplay = async () => {
     try {
       setError(null); setChunks([]); setElapsedSec(0);
-      wasAboveThresholdRef.current = false;
-      requestNotificationPermission();
+      lastAlertTimeRef.current = 0;
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor' },
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -159,8 +186,7 @@ export default function SystemAudioInferencePage() {
   const handleStartDevice = async () => {
     try {
       setError(null); setChunks([]); setElapsedSec(0);
-      wasAboveThresholdRef.current = false;
-      requestNotificationPermission();
+      lastAlertTimeRef.current = 0;
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
         video: false,
@@ -214,15 +240,30 @@ export default function SystemAudioInferencePage() {
               <CardContent>
                 <Stack spacing={2.5}>
 
-                  {/* Timer */}
+                  {/* Timer + alert toggle */}
                   <Stack direction="row" alignItems="center" justifyContent="space-between">
                     <Typography variant="h6">Capture System Audio</Typography>
-                    {isCapturing && (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <FiberManualRecordIcon color="error" sx={{ fontSize: 12, animation: 'pulse 1s infinite' }} />
-                        <Typography variant="body2" color="error">{elapsed}</Typography>
-                      </Box>
-                    )}
+                    <Stack direction="row" alignItems="center" spacing={2}>
+                      {isCapturing && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <FiberManualRecordIcon color="error" sx={{ fontSize: 12, animation: 'pulse 1s infinite' }} />
+                          <Typography variant="body2" color="error">{elapsed}</Typography>
+                        </Box>
+                      )}
+                      <Tooltip title="Show in-app + OS notifications when synthetic speech is detected">
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              size="small"
+                              checked={notificationsEnabled}
+                              onChange={(e) => setNotificationsEnabled(e.target.checked)}
+                            />
+                          }
+                          label="Alerts"
+                          sx={{ mr: 0 }}
+                        />
+                      </Tooltip>
+                    </Stack>
                   </Stack>
 
                   {/* PRIMARY — getDisplayMedia */}
@@ -327,6 +368,7 @@ export default function SystemAudioInferencePage() {
       </Grid>
 
       <Snackbar
+        key={alertKey}
         open={alertOpen}
         autoHideDuration={6000}
         onClose={() => setAlertOpen(false)}
