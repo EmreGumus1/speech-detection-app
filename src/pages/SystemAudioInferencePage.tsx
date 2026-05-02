@@ -4,7 +4,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
 import FormControl from '@mui/material/FormControl';
 import Grid from '@mui/material/Grid';
@@ -12,6 +11,7 @@ import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
+import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -23,10 +23,10 @@ import ResultsPanel, { type ChunkResult } from '../dashboard/components/ResultsP
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
 import { createRealtimeSession } from '../api/inference';
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
+import { aggregateChunks } from '../utils/aggregateChunks';
 
 const CHUNK_DURATION_SEC = 3;
-
-type CaptureMode = 'display' | 'device';
+const SYNTHETIC_ALERT_THRESHOLD = 0.7; // Alert if any model's avg synthetic probability exceeds this
 
 export default function SystemAudioInferencePage() {
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
@@ -34,16 +34,48 @@ export default function SystemAudioInferencePage() {
   const [error, setError] = React.useState<string | null>(null);
   const [isCapturing, setIsCapturing] = React.useState(false);
   const [elapsedSec, setElapsedSec] = React.useState(0);
-  const [captureMode, setCaptureMode] = React.useState<CaptureMode>('display');
-  const [showDevicePicker, setShowDevicePicker] = React.useState(false);
-
   const [audioDevices, setAudioDevices] = React.useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = React.useState<string>('');
+
+  const [alertOpen, setAlertOpen] = React.useState(false);
+  const [alertMsg, setAlertMsg] = React.useState('');
 
   const sessionRef = React.useRef<ReturnType<typeof createRealtimeSession> | null>(null);
   const recorderRef = React.useRef<PcmStreamRecorder | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const wasAboveThresholdRef = React.useRef(false);
+
+  const aggregated = React.useMemo(() => aggregateChunks(chunks), [chunks]);
+
+  // Detect threshold crossings (any model's avg crosses upward)
+  React.useEffect(() => {
+    if (aggregated.length === 0) return;
+    const triggered = aggregated.find((row) => row.avgSyntheticProb >= SYNTHETIC_ALERT_THRESHOLD);
+    if (triggered && !wasAboveThresholdRef.current) {
+      wasAboveThresholdRef.current = true;
+      const msg = `Synthetic speech detected — ${triggered.modelName} avg ${(triggered.avgSyntheticProb * 100).toFixed(0)}%`;
+      setAlertMsg(msg);
+      setAlertOpen(true);
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try {
+          new Notification('Synthetic audio alert', { body: msg });
+        } catch (err) {
+          console.warn('Notification failed:', err);
+        }
+      }
+    } else if (!triggered && wasAboveThresholdRef.current) {
+      // Dropped back below — re-arm so a future crossing fires again
+      wasAboveThresholdRef.current = false;
+    }
+  }, [aggregated]);
+
+  const requestNotificationPermission = () => {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission === 'default') {
+      void Notification.requestPermission();
+    }
+  };
 
   const stopTimer = () => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -103,6 +135,8 @@ export default function SystemAudioInferencePage() {
   const handleStartDisplay = async () => {
     try {
       setError(null); setChunks([]); setElapsedSec(0);
+      wasAboveThresholdRef.current = false;
+      requestNotificationPermission();
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor' },
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -113,7 +147,6 @@ export default function SystemAudioInferencePage() {
         setError('No audio captured — in the share dialog make sure "Share system audio" is checked, then try again.');
         return;
       }
-      setCaptureMode('display');
       startSession(stream);
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'NotAllowedError') return;
@@ -126,12 +159,13 @@ export default function SystemAudioInferencePage() {
   const handleStartDevice = async () => {
     try {
       setError(null); setChunks([]); setElapsedSec(0);
+      wasAboveThresholdRef.current = false;
+      requestNotificationPermission();
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
         video: false,
       });
       streamRef.current = stream;
-      setCaptureMode('device');
       startSession(stream);
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
@@ -291,6 +325,22 @@ export default function SystemAudioInferencePage() {
           <ModelSelectorPanel selectedModels={selectedModels} onChange={setSelectedModels} />
         </Grid>
       </Grid>
+
+      <Snackbar
+        open={alertOpen}
+        autoHideDuration={6000}
+        onClose={() => setAlertOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          severity="warning"
+          variant="filled"
+          onClose={() => setAlertOpen(false)}
+          sx={{ width: '100%' }}
+        >
+          {alertMsg}
+        </Alert>
+      </Snackbar>
     </Stack>
   );
 }

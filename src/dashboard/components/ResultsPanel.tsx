@@ -5,6 +5,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import type { InferenceResultItem } from '../../api/mockInference';
+import { aggregateChunks } from '../../utils/aggregateChunks';
 
 export type ChunkResult = {
   index: number;
@@ -17,45 +18,6 @@ type ResultsPanelProps = {
   chunks: ChunkResult[];
   isStreaming?: boolean;
 };
-
-type AggregatedRow = {
-  modelId: string;
-  modelName: string;
-  avgSyntheticProb: number;
-  prediction: 'synthetic' | 'real';
-  confidence: number;
-  chunkCount: number;
-};
-
-function toSyntheticProb(item: InferenceResultItem): number {
-  return item.prediction === 'synthetic' ? item.confidence : 1 - item.confidence;
-}
-
-function aggregate(chunks: ChunkResult[]): AggregatedRow[] {
-  const byModel = new Map<string, { name: string; sum: number; count: number }>();
-  for (const chunk of chunks) {
-    if (!chunk.results) continue;
-    for (const item of chunk.results) {
-      const prob = toSyntheticProb(item);
-      const existing = byModel.get(item.model_id) ?? { name: item.model_name, sum: 0, count: 0 };
-      existing.sum += prob;
-      existing.count += 1;
-      byModel.set(item.model_id, existing);
-    }
-  }
-  return Array.from(byModel.entries()).map(([modelId, { name, sum, count }]) => {
-    const avg = sum / count;
-    const prediction: 'synthetic' | 'real' = avg >= 0.5 ? 'synthetic' : 'real';
-    return {
-      modelId,
-      modelName: name,
-      avgSyntheticProb: avg,
-      prediction,
-      confidence: prediction === 'synthetic' ? avg : 1 - avg,
-      chunkCount: count,
-    };
-  });
-}
 
 export default function ResultsPanel({ chunks, isStreaming = false }: ResultsPanelProps) {
   if (chunks.length === 0) {
@@ -74,7 +36,7 @@ export default function ResultsPanel({ chunks, isStreaming = false }: ResultsPan
     );
   }
 
-  const aggregated = aggregate(chunks);
+  const aggregated = aggregateChunks(chunks);
   const lastChunk = chunks[chunks.length - 1];
 
   return (
