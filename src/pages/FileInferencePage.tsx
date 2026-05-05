@@ -14,7 +14,7 @@ const CHUNK_DURATION_SEC = 3;
 
 export default function FileInferencePage() {
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
-  const [selectedModels, setSelectedModels] = React.useState<string[]>(['moe_lcnn_v1']);
+  const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
   const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null);

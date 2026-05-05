@@ -134,7 +134,7 @@ export default function SystemAudioInferencePage() {
     requestNotificationPermission();
 
     sessionRef.current = createRealtimeSession(
-      selectedModels[0],
+      selectedModels,
       (data) => {
         const payload = data as { duration_sec?: number; results?: ChunkResult['results']; error?: string };
         if (payload.error) { setError(payload.error); return; }

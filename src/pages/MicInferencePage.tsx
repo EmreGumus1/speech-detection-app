@@ -49,7 +49,7 @@ export default function MicInferencePage() {
       streamRef.current = stream;
 
       sessionRef.current = createRealtimeSession(
-        selectedModels[0],
+        selectedModels,
         (data) => {
           const payload = data as {
             duration_sec?: number;
@@ -121,7 +121,7 @@ export default function MicInferencePage() {
           Microphone Input
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Inference runs every {CHUNK_DURATION_SEC} seconds and results update live.
+          Inference runing and results update live.
         </Typography>
       </div>
 

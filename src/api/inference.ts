@@ -30,11 +30,14 @@ export async function getModels() {
 }
 
 export function createRealtimeSession(
-  modelId: string,
+  modelIds: string[],
   onResult: (data: unknown) => void,
   onError?: (err: unknown) => void,
 ) {
-  const ws = new WebSocket(`${WS_BASE_URL}/ws/predict?model_id=${encodeURIComponent(modelId)}`);
+  const params = modelIds.length > 0
+    ? `?model_ids=${modelIds.map(encodeURIComponent).join(',')}`
+    : '';
+  const ws = new WebSocket(`${WS_BASE_URL}/ws/predict${params}`);
 
   ws.onmessage = (event) => {
     try {
