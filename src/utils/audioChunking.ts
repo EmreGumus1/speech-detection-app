@@ -49,10 +49,16 @@ export function encodePcmAsWav(
   return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
 
+export type WavChunk = {
+  wav: Blob;
+  samples: Float32Array;
+  sampleRate: number;
+};
+
 export async function splitAudioFileIntoWavChunks(
   file: File,
   chunkDurationSec: number,
-): Promise<Blob[]> {
+): Promise<WavChunk[]> {
   const arrayBuffer = await file.arrayBuffer();
   const AudioCtx = getAudioContextCtor();
   const audioContext = new AudioCtx();
@@ -70,34 +76,28 @@ export async function splitAudioFileIntoWavChunks(
   const samplesPerChunk = Math.floor(sampleRate * chunkDurationSec);
   const totalSamples = audioBuffer.length;
 
-  const chunks: Blob[] = [];
+  const chunks: WavChunk[] = [];
 
   for (let start = 0; start < totalSamples; start += samplesPerChunk) {
     const end = Math.min(start + samplesPerChunk, totalSamples);
     const length = end - start;
 
-    const chunkBuffer = audioContext.createBuffer(numChannels, length, sampleRate);
+    const mono = new Float32Array(length);
     for (let ch = 0; ch < numChannels; ch++) {
-      const slice = audioBuffer.getChannelData(ch).subarray(start, end);
-      chunkBuffer.getChannelData(ch).set(slice);
+      const data = audioBuffer.getChannelData(ch);
+      for (let i = 0; i < length; i++) mono[i] += data[start + i];
+    }
+    if (numChannels > 1) {
+      for (let i = 0; i < length; i++) mono[i] /= numChannels;
     }
 
-    chunks.push(audioBufferToWav(chunkBuffer));
+    chunks.push({
+      wav: encodePcmAsWav(mono, sampleRate, 1),
+      samples: mono,
+      sampleRate,
+    });
   }
 
   await audioContext.close();
   return chunks;
-}
-
-function audioBufferToWav(buffer: AudioBuffer): Blob {
-  // Mix down to mono by averaging channels (simple, good enough for inference)
-  const numChannels = buffer.numberOfChannels;
-  const numSamples = buffer.length;
-  const mono = new Float32Array(numSamples);
-  for (let i = 0; i < numSamples; i++) {
-    let sum = 0;
-    for (let ch = 0; ch < numChannels; ch++) sum += buffer.getChannelData(ch)[i];
-    mono[i] = sum / numChannels;
-  }
-  return encodePcmAsWav(mono, buffer.sampleRate, 1);
 }

@@ -6,10 +6,17 @@ export type PcmStreamRecorder = {
   getCombinedWav: () => Blob | null;
 };
 
+export type PcmChunkCallback = (
+  wav: Blob,
+  durationSec: number,
+  samples: Float32Array,
+  sampleRate: number,
+) => void;
+
 export function createPcmStreamRecorder(
   stream: MediaStream,
   chunkDurationSec: number,
-  onChunk: (wav: Blob, durationSec: number) => void,
+  onChunk: PcmChunkCallback,
 ): PcmStreamRecorder {
   const AudioCtx = getAudioContextCtor();
   let audioContext: AudioContext | null = null;
@@ -45,7 +52,7 @@ export function createPcmStreamRecorder(
     samplesAccumulated -= flushSize;
 
     const wav = encodePcmAsWav(out, sampleRate, 1);
-    onChunk(wav, flushSize / sampleRate);
+    onChunk(wav, flushSize / sampleRate, out, sampleRate);
 
     // Recurse to drain when force=false and we still have a full chunk worth
     if (!force && samplesAccumulated >= samplesPerChunk) flushChunk(false);

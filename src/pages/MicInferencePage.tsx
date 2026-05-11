@@ -10,6 +10,7 @@ import Typography from '@mui/material/Typography';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import ResultsPanel, { type ChunkResult } from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
+import WaveformPanel from '../dashboard/components/WaveformPanel';
 import { createRealtimeSession } from '../api/inference';
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 
@@ -26,6 +27,7 @@ export default function MicInferencePage() {
   const recorderRef = React.useRef<PcmStreamRecorder | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number }>>([]);
 
   const stopTimer = () => {
     if (timerRef.current) {
@@ -44,6 +46,7 @@ export default function MicInferencePage() {
       setError(null);
       setChunks([]);
       setElapsedSec(0);
+      pendingSamplesRef.current = [];
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -57,10 +60,12 @@ export default function MicInferencePage() {
             error?: string;
           };
           if (payload.error) {
+            pendingSamplesRef.current.shift();
             setError(payload.error);
             return;
           }
           if (!payload.results) return;
+          const pending = pendingSamplesRef.current.shift();
           setChunks((prev) => {
             const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
             return [
@@ -70,6 +75,8 @@ export default function MicInferencePage() {
                 startSec,
                 durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
                 results: payload.results!,
+                samples: pending?.samples,
+                sampleRate: pending?.sampleRate,
               },
             ];
           });
@@ -80,9 +87,14 @@ export default function MicInferencePage() {
         },
       );
 
-      const recorder = createPcmStreamRecorder(stream, CHUNK_DURATION_SEC, (wavBlob) => {
-        void sessionRef.current?.send(wavBlob);
-      });
+      const recorder = createPcmStreamRecorder(
+        stream,
+        CHUNK_DURATION_SEC,
+        (wavBlob, _dur, samples, sampleRate) => {
+          pendingSamplesRef.current.push({ samples, sampleRate });
+          void sessionRef.current?.send(wavBlob);
+        },
+      );
       recorderRef.current = recorder;
       recorder.start();
 
@@ -165,6 +177,12 @@ export default function MicInferencePage() {
                 </Stack>
               </CardContent>
             </Card>
+
+            <WaveformPanel
+              chunks={chunks}
+              chunkDurationSec={CHUNK_DURATION_SEC}
+              isStreaming={isRecording}
+            />
 
             <ResultsPanel chunks={chunks} isStreaming={isRecording} />
           </Stack>

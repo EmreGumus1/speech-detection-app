@@ -12,6 +12,8 @@ export type ChunkResult = {
   startSec: number;
   durationSec: number;
   results: InferenceResultItem[];
+  samples?: Float32Array;
+  sampleRate?: number;
 };
 
 type ResultsPanelProps = {

@@ -9,6 +9,7 @@ import MenuContent from './MenuContent';
 import CardAlert from './CardAlert';
 import OptionsMenu from './OptionsMenu';
 import Avatar from '@mui/material/Avatar';
+import ColorModeIconDropdown from '../../shared-theme/ColorModeIconDropdown';
 
 const drawerWidth = 240;
 
@@ -80,6 +81,7 @@ export default function SideMenu() {
             Admin
           </Typography>
         </Box>
+        <ColorModeIconDropdown />
         <OptionsMenu />
       </Stack>
     </Drawer>

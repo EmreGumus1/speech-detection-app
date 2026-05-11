@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography';
 import FileUploadPanel from '../dashboard/components/FileUploadPanel';
 import ResultsPanel, { type ChunkResult } from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
+import WaveformPanel from '../dashboard/components/WaveformPanel';
 import { predictFile } from '../api/inference';
 import { splitAudioFileIntoWavChunks } from '../utils/audioChunking';
 
@@ -33,7 +34,8 @@ export default function FileInferencePage() {
       setProgress({ done: 0, total: wavChunks.length });
 
       for (let i = 0; i < wavChunks.length; i++) {
-        const chunkFile = new File([wavChunks[i]], `chunk_${i}.wav`, { type: 'audio/wav' });
+        const { wav, samples, sampleRate } = wavChunks[i];
+        const chunkFile = new File([wav], `chunk_${i}.wav`, { type: 'audio/wav' });
         const data = await predictFile(chunkFile, selectedModels, 'file');
         const startSec = i * CHUNK_DURATION_SEC;
 
@@ -44,6 +46,8 @@ export default function FileInferencePage() {
             startSec,
             durationSec: data.duration_sec ?? CHUNK_DURATION_SEC,
             results: data.results,
+            samples,
+            sampleRate,
           },
         ]);
         setProgress({ done: i + 1, total: wavChunks.length });
@@ -91,6 +95,12 @@ export default function FileInferencePage() {
                 />
               </Stack>
             )}
+
+            <WaveformPanel
+              chunks={chunks}
+              chunkDurationSec={CHUNK_DURATION_SEC}
+              isStreaming={isSubmitting}
+            />
 
             <ResultsPanel chunks={chunks} isStreaming={isSubmitting} />
           </Stack>

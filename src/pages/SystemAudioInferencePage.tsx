@@ -23,6 +23,7 @@ import ScreenShareRoundedIcon from '@mui/icons-material/ScreenShareRounded';
 import MicRoundedIcon from '@mui/icons-material/MicRounded';
 import ResultsPanel, { type ChunkResult } from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
+import WaveformPanel from '../dashboard/components/WaveformPanel';
 import { createRealtimeSession } from '../api/inference';
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 import { aggregateChunks } from '../utils/aggregateChunks';
@@ -50,6 +51,7 @@ export default function SystemAudioInferencePage() {
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAlertTimeRef = React.useRef(0);
+  const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number }>>([]);
 
   const aggregated = React.useMemo(() => aggregateChunks(chunks), [chunks]);
 
@@ -137,20 +139,40 @@ export default function SystemAudioInferencePage() {
       selectedModels,
       (data) => {
         const payload = data as { duration_sec?: number; results?: ChunkResult['results']; error?: string };
-        if (payload.error) { setError(payload.error); return; }
+        if (payload.error) {
+          pendingSamplesRef.current.shift();
+          setError(payload.error);
+          return;
+        }
         if (!payload.results) return;
+        const pending = pendingSamplesRef.current.shift();
         setChunks((prev) => {
           const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
-          return [...prev, { index: prev.length, startSec, durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC, results: payload.results! }];
+          return [
+            ...prev,
+            {
+              index: prev.length,
+              startSec,
+              durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
+              results: payload.results!,
+              samples: pending?.samples,
+              sampleRate: pending?.sampleRate,
+            },
+          ];
         });
       },
       (err) => { console.error('WebSocket error:', err); setError('WebSocket connection error'); },
     );
 
     const audioStream = new MediaStream(stream.getAudioTracks());
-    const recorder = createPcmStreamRecorder(audioStream, CHUNK_DURATION_SEC, (wav) => {
-      void sessionRef.current?.send(wav);
-    });
+    const recorder = createPcmStreamRecorder(
+      audioStream,
+      CHUNK_DURATION_SEC,
+      (wav, _dur, samples, sampleRate) => {
+        pendingSamplesRef.current.push({ samples, sampleRate });
+        void sessionRef.current?.send(wav);
+      },
+    );
     recorderRef.current = recorder;
     recorder.start();
 
@@ -164,6 +186,7 @@ export default function SystemAudioInferencePage() {
     try {
       setError(null); setChunks([]); setElapsedSec(0);
       lastAlertTimeRef.current = 0;
+      pendingSamplesRef.current = [];
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor' },
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -187,6 +210,7 @@ export default function SystemAudioInferencePage() {
     try {
       setError(null); setChunks([]); setElapsedSec(0);
       lastAlertTimeRef.current = 0;
+      pendingSamplesRef.current = [];
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
         video: false,
@@ -357,6 +381,12 @@ export default function SystemAudioInferencePage() {
                 </Stack>
               </CardContent>
             </Card>
+
+            <WaveformPanel
+              chunks={chunks}
+              chunkDurationSec={CHUNK_DURATION_SEC}
+              isStreaming={isCapturing}
+            />
 
             <ResultsPanel chunks={chunks} isStreaming={isCapturing} />
           </Stack>
