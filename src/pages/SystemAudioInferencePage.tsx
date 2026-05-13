@@ -23,14 +23,18 @@ import ScreenShareRoundedIcon from '@mui/icons-material/ScreenShareRounded';
 import MicRoundedIcon from '@mui/icons-material/MicRounded';
 import ResultsPanel, { type ChunkResult } from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
+import WhisperSelectorPanel from '../dashboard/components/WhisperSelectorPanel';
+import ScamResultPanel from '../dashboard/components/ScamResultPanel';
 import WaveformPanel from '../dashboard/components/WaveformPanel';
 import { createRealtimeSession } from '../api/inference';
+import { createTranscribeSession, type TranscribeResult, type WarmupProgress } from '../api/whisper';
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 import { aggregateChunks } from '../utils/aggregateChunks';
+import { mergeScamResult } from '../utils/mergeScamResult';
 
 const CHUNK_DURATION_SEC = 3;
-const SYNTHETIC_ALERT_THRESHOLD = 0.2; // Alert if any model's avg synthetic probability exceeds this
-const ALERT_COOLDOWN_MS = 5_000;       // Re-fire alert every N ms while still above threshold
+const SYNTHETIC_ALERT_THRESHOLD = 0.2;
+const ALERT_COOLDOWN_MS = 5_000;
 
 export default function SystemAudioInferencePage() {
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
@@ -46,7 +50,16 @@ export default function SystemAudioInferencePage() {
   const [alertKey, setAlertKey] = React.useState(0);
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
 
+  // Whisper state
+  const [whisperEnabled, setWhisperEnabled] = React.useState(true);
+  const [selectedWhisperModel, setSelectedWhisperModel] = React.useState('base');
+  const [selectedLanguage, setSelectedLanguage] = React.useState('auto');
+  const [showTranscript, setShowTranscript] = React.useState(false);
+  const [scamResult, setScamResult] = React.useState<TranscribeResult | null>(null);
+  const [warmupProgress, setWarmupProgress] = React.useState<WarmupProgress | null>(null);
+
   const sessionRef = React.useRef<ReturnType<typeof createRealtimeSession> | null>(null);
+  const transcribeSessionRef = React.useRef<ReturnType<typeof createTranscribeSession> | null>(null);
   const recorderRef = React.useRef<PcmStreamRecorder | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -55,14 +68,12 @@ export default function SystemAudioInferencePage() {
 
   const aggregated = React.useMemo(() => aggregateChunks(chunks), [chunks]);
 
-  // Re-fire alert on every crossing AND every ALERT_COOLDOWN_MS while still above threshold
   React.useEffect(() => {
     if (!notificationsEnabled) return;
     if (aggregated.length === 0) return;
     const triggered = aggregated.filter((row) => row.avgSyntheticProb >= SYNTHETIC_ALERT_THRESHOLD);
 
     if (triggered.length === 0) {
-      // Below threshold — reset cooldown so the next crossing fires immediately
       lastAlertTimeRef.current = 0;
       return;
     }
@@ -77,21 +88,16 @@ export default function SystemAudioInferencePage() {
     const msg = `Synthetic speech detected — ${summary}`;
     setAlertMsg(msg);
     setAlertOpen(true);
-    setAlertKey((k) => k + 1); // forces Snackbar remount → autoHide timer resets
+    setAlertKey((k) => k + 1);
 
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       try {
         const n = new Notification('Synthetic audio alert', {
           body: msg,
-          tag: 'synthetic-audio-alert', // OS replaces previous notification with same tag
-          // `renotify` is in the spec but missing from TS's NotificationOptions; cast to access it.
-          // Forces the toast to re-pop instead of silently updating the existing notification.
+          tag: 'synthetic-audio-alert',
           ...({ renotify: true } as Record<string, unknown>),
         });
-        n.onclick = () => {
-          window.focus();
-          n.close();
-        };
+        n.onclick = () => { window.focus(); n.close(); };
       } catch (err) {
         console.warn('Notification failed:', err);
       }
@@ -100,9 +106,7 @@ export default function SystemAudioInferencePage() {
 
   const requestNotificationPermission = () => {
     if (typeof Notification === 'undefined') return;
-    if (Notification.permission === 'default') {
-      void Notification.requestPermission();
-    }
+    if (Notification.permission === 'default') void Notification.requestPermission();
   };
 
   const stopTimer = () => {
@@ -130,11 +134,10 @@ export default function SystemAudioInferencePage() {
   React.useEffect(() => { void refreshDevices(); }, []);
 
   const startSession = (stream: MediaStream) => {
-    // Drop video tracks — we only need audio
     stream.getVideoTracks().forEach((t) => t.stop());
-
     requestNotificationPermission();
 
+    // Deepfake detection WebSocket
     sessionRef.current = createRealtimeSession(
       selectedModels,
       (data) => {
@@ -164,6 +167,23 @@ export default function SystemAudioInferencePage() {
       (err) => { console.error('WebSocket error:', err); setError('WebSocket connection error'); },
     );
 
+    // Whisper transcription WebSocket
+    if (whisperEnabled && selectedWhisperModel) {
+      transcribeSessionRef.current = createTranscribeSession(
+        selectedWhisperModel,
+        selectedLanguage,
+        (msg) => {
+          if (msg.warmup) {
+            setWarmupProgress(msg as WarmupProgress);
+          } else {
+            setWarmupProgress(null);
+            setScamResult((prev) => mergeScamResult(prev, msg as TranscribeResult));
+          }
+        },
+        (err) => console.error('Transcribe WS error:', err),
+      );
+    }
+
     const audioStream = new MediaStream(stream.getAudioTracks());
     const recorder = createPcmStreamRecorder(
       audioStream,
@@ -171,6 +191,7 @@ export default function SystemAudioInferencePage() {
       (wav, _dur, samples, sampleRate) => {
         pendingSamplesRef.current.push({ samples, sampleRate });
         void sessionRef.current?.send(wav);
+        void transcribeSessionRef.current?.send(wav);
       },
     );
     recorderRef.current = recorder;
@@ -181,10 +202,10 @@ export default function SystemAudioInferencePage() {
     setIsCapturing(true);
   };
 
-  // PRIMARY: screen share → system audio (Chrome/Edge on macOS)
   const handleStartDisplay = async () => {
     try {
       setError(null); setChunks([]); setElapsedSec(0);
+      setScamResult(null); setWarmupProgress(null);
       lastAlertTimeRef.current = 0;
       pendingSamplesRef.current = [];
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -205,10 +226,10 @@ export default function SystemAudioInferencePage() {
     }
   };
 
-  // FALLBACK: audio input device (any browser — use with BlackHole / virtual cable)
   const handleStartDevice = async () => {
     try {
       setError(null); setChunks([]); setElapsedSec(0);
+      setScamResult(null); setWarmupProgress(null);
       lastAlertTimeRef.current = 0;
       pendingSamplesRef.current = [];
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -232,13 +253,18 @@ export default function SystemAudioInferencePage() {
     recorderRef.current?.stop();
     cleanupStream();
     setIsCapturing(false);
-    setTimeout(() => sessionRef.current?.close(), 1500);
+    setTimeout(() => {
+      sessionRef.current?.close();
+      transcribeSessionRef.current?.close();
+      transcribeSessionRef.current = null;
+    }, 1500);
   };
 
   React.useEffect(() => {
     return () => {
       stopTimer();
       sessionRef.current?.close();
+      transcribeSessionRef.current?.close();
       recorderRef.current?.stop();
       cleanupStream();
     };
@@ -389,11 +415,31 @@ export default function SystemAudioInferencePage() {
             />
 
             <ResultsPanel chunks={chunks} isStreaming={isCapturing} />
+
+            <ScamResultPanel
+              result={scamResult}
+              warmup={warmupProgress}
+              isActive={isCapturing && whisperEnabled && !!selectedWhisperModel}
+              showTranscript={showTranscript}
+            />
           </Stack>
         </Grid>
 
         <Grid size={{ xs: 12, md: 4 }}>
-          <ModelSelectorPanel selectedModels={selectedModels} onChange={setSelectedModels} />
+          <Stack spacing={2}>
+            <ModelSelectorPanel selectedModels={selectedModels} onChange={setSelectedModels} />
+            <WhisperSelectorPanel
+              enabled={whisperEnabled}
+              onEnabledChange={setWhisperEnabled}
+              selectedModelId={selectedWhisperModel}
+              onModelChange={setSelectedWhisperModel}
+              selectedLanguage={selectedLanguage}
+              onLanguageChange={setSelectedLanguage}
+              showTranscript={showTranscript}
+              onShowTranscriptChange={setShowTranscript}
+              disabled={isCapturing}
+            />
+          </Stack>
         </Grid>
       </Grid>
 

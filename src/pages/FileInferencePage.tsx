@@ -7,8 +7,11 @@ import Typography from '@mui/material/Typography';
 import FileUploadPanel from '../dashboard/components/FileUploadPanel';
 import ResultsPanel, { type ChunkResult } from '../dashboard/components/ResultsPanel';
 import ModelSelectorPanel from '../dashboard/components/ModelSelectorPanel';
+import WhisperSelectorPanel from '../dashboard/components/WhisperSelectorPanel';
+import ScamResultPanel from '../dashboard/components/ScamResultPanel';
 import WaveformPanel from '../dashboard/components/WaveformPanel';
 import { predictFile } from '../api/inference';
+import { transcribeFile, type TranscribeResult } from '../api/whisper';
 import { splitAudioFileIntoWavChunks } from '../utils/audioChunking';
 
 const CHUNK_DURATION_SEC = 3;
@@ -21,15 +24,35 @@ export default function FileInferencePage() {
   const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Whisper state
+  const [whisperEnabled, setWhisperEnabled] = React.useState(true);
+  const [selectedWhisperModel, setSelectedWhisperModel] = React.useState('base');
+  const [selectedLanguage, setSelectedLanguage] = React.useState('auto');
+  const [showTranscript, setShowTranscript] = React.useState(false);
+  const [scamResult, setScamResult] = React.useState<TranscribeResult | null>(null);
+  const [isTranscribing, setIsTranscribing] = React.useState(false);
+
+  const isRunning = isSubmitting || isTranscribing;
+
   const handleRunInference = async () => {
     if (!selectedFile || selectedModels.length === 0) return;
 
-    try {
-      setIsSubmitting(true);
-      setError(null);
-      setChunks([]);
-      setProgress(null);
+    setIsSubmitting(true);
+    setError(null);
+    setChunks([]);
+    setProgress(null);
+    setScamResult(null);
 
+    // Start Whisper transcription in parallel (fire-and-forget style)
+    if (whisperEnabled && selectedWhisperModel) {
+      setIsTranscribing(true);
+      transcribeFile(selectedFile, selectedWhisperModel, selectedLanguage)
+        .then((result) => setScamResult(result))
+        .catch((err: Error) => setError(`Transcription error: ${err.message}`))
+        .finally(() => setIsTranscribing(false));
+    }
+
+    try {
       const wavChunks = await splitAudioFileIntoWavChunks(selectedFile, CHUNK_DURATION_SEC);
       setProgress({ done: 0, total: wavChunks.length });
 
@@ -80,7 +103,7 @@ export default function FileInferencePage() {
               selectedFile={selectedFile}
               onFileSelect={setSelectedFile}
               onRunInference={handleRunInference}
-              isSubmitting={isSubmitting}
+              isSubmitting={isRunning}
               disabled={selectedModels.length === 0}
             />
 
@@ -103,14 +126,34 @@ export default function FileInferencePage() {
             />
 
             <ResultsPanel chunks={chunks} isStreaming={isSubmitting} />
+
+            <ScamResultPanel
+              result={scamResult}
+              warmup={null}
+              isActive={isTranscribing}
+              showTranscript={showTranscript}
+            />
           </Stack>
         </Grid>
 
         <Grid size={{ xs: 12, md: 4 }}>
-          <ModelSelectorPanel
-            selectedModels={selectedModels}
-            onChange={setSelectedModels}
-          />
+          <Stack spacing={2}>
+            <ModelSelectorPanel
+              selectedModels={selectedModels}
+              onChange={setSelectedModels}
+            />
+            <WhisperSelectorPanel
+              enabled={whisperEnabled}
+              onEnabledChange={setWhisperEnabled}
+              selectedModelId={selectedWhisperModel}
+              onModelChange={setSelectedWhisperModel}
+              selectedLanguage={selectedLanguage}
+              onLanguageChange={setSelectedLanguage}
+              showTranscript={showTranscript}
+              onShowTranscriptChange={setShowTranscript}
+              disabled={isRunning}
+            />
+          </Stack>
         </Grid>
       </Grid>
     </Stack>
