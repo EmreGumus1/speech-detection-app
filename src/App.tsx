@@ -7,6 +7,7 @@ import SystemAudioInferencePage from './pages/SystemAudioInferencePage';
 import ModelsPage from './pages/ModelsPage';
 import ExperimentsPage from './pages/ExperimentsPage';
 import SettingsPage from './pages/SettingsPage';
+import AboutPage from './pages/AboutPage';
 
 export default function App() {
   return (
@@ -18,8 +19,10 @@ export default function App() {
         <Route path="inference/mic" element={<MicInferencePage />} />
         <Route path="inference/system-audio" element={<SystemAudioInferencePage />} />
         <Route path="models" element={<ModelsPage />} />
+        <Route path="model-comparison" element={<ExperimentsPage />} />
         <Route path="experiments" element={<ExperimentsPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="about" element={<AboutPage />} />
       </Route>
     </Routes>
   );

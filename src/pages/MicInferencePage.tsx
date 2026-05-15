@@ -17,10 +17,14 @@ import { createRealtimeSession } from '../api/inference';
 import { createTranscribeSession, type TranscribeResult, type WarmupProgress } from '../api/whisper';
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 import { mergeScamResult } from '../utils/mergeScamResult';
+import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 1;
+const SILENCE_RMS_THRESHOLD = 0.008; // below this = silence
 
 export default function MicInferencePage() {
+  const { settings, recordChunk } = useSession();
+
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
   const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -41,6 +45,8 @@ export default function MicInferencePage() {
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number }>>([]);
+  // Silence detection: timestamp of last chunk with audio above threshold
+  const lastSignificantAudioRef = React.useRef<number>(0);
 
   const stopTimer = () => {
     if (timerRef.current) {
@@ -54,6 +60,31 @@ export default function MicInferencePage() {
     streamRef.current = null;
   };
 
+  const handleStop = React.useCallback(() => {
+    stopTimer();
+    recorderRef.current?.stop();
+    cleanupStream();
+    setIsRecording(false);
+    setTimeout(() => {
+      sessionRef.current?.close();
+      transcribeSessionRef.current?.close();
+      transcribeSessionRef.current = null;
+    }, 1500);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Silence auto-stop
+  React.useEffect(() => {
+    if (!isRecording || settings.silenceTimeoutSec === 0) return;
+    lastSignificantAudioRef.current = Date.now(); // reset on each session start
+    const id = setInterval(() => {
+      const silentMs = Date.now() - lastSignificantAudioRef.current;
+      if (silentMs >= settings.silenceTimeoutSec * 1000) {
+        handleStop();
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [isRecording, settings.silenceTimeoutSec, handleStop]);
+
   const handleStart = async () => {
     try {
       setError(null);
@@ -62,6 +93,7 @@ export default function MicInferencePage() {
       setScamResult(null);
       setWarmupProgress(null);
       pendingSamplesRef.current = [];
+      lastSignificantAudioRef.current = Date.now();
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -82,6 +114,15 @@ export default function MicInferencePage() {
           }
           if (!payload.results) return;
           const pending = pendingSamplesRef.current.shift();
+
+          // Record stats for every result item in this chunk
+          payload.results.forEach((r) => {
+            recordChunk(
+              r.prediction as 'synthetic' | 'real',
+              r.inference_time_ms ?? 0,
+            );
+          });
+
           setChunks((prev) => {
             const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
             return [
@@ -124,6 +165,13 @@ export default function MicInferencePage() {
         stream,
         CHUNK_DURATION_SEC,
         (wavBlob, _dur, samples, sampleRate) => {
+          // Silence detection: compute RMS
+          const rms = Math.sqrt(
+            samples.reduce((sum, s) => sum + s * s, 0) / samples.length,
+          );
+          if (rms > SILENCE_RMS_THRESHOLD) {
+            lastSignificantAudioRef.current = Date.now();
+          }
           pendingSamplesRef.current.push({ samples, sampleRate });
           void sessionRef.current?.send(wavBlob);
           void transcribeSessionRef.current?.send(wavBlob);
@@ -143,18 +191,6 @@ export default function MicInferencePage() {
     }
   };
 
-  const handleStop = () => {
-    stopTimer();
-    recorderRef.current?.stop();
-    cleanupStream();
-    setIsRecording(false);
-    setTimeout(() => {
-      sessionRef.current?.close();
-      transcribeSessionRef.current?.close();
-      transcribeSessionRef.current = null;
-    }, 1500);
-  };
-
   React.useEffect(() => {
     return () => {
       stopTimer();
@@ -163,7 +199,7 @@ export default function MicInferencePage() {
       recorderRef.current?.stop();
       cleanupStream();
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Stack spacing={2}>
@@ -173,6 +209,9 @@ export default function MicInferencePage() {
         </Typography>
         <Typography variant="body1" color="text.secondary">
           Inference running and results update live.
+          {settings.silenceTimeoutSec > 0 && (
+            <> Auto-stops after {settings.silenceTimeoutSec}s of silence.</>
+          )}
         </Typography>
       </div>
 

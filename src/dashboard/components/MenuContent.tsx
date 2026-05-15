@@ -11,10 +11,9 @@ import MicRoundedIcon from '@mui/icons-material/MicRounded';
 import ScreenShareRoundedIcon from '@mui/icons-material/ScreenShareRounded';
 import HubRoundedIcon from '@mui/icons-material/HubRounded';
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
+import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded';
-import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
-import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const inferenceItems = [
@@ -26,21 +25,25 @@ const inferenceItems = [
 
 const researchItems = [
   { text: 'Models', icon: <HubRoundedIcon />, path: '/models' },
-  { text: 'Model Comparison', icon: <CompareArrowsRoundedIcon />, path: '/models' },
+  { text: 'Model Comparison', icon: <CompareArrowsRoundedIcon />, path: '/model-comparison' },
   { text: 'Experiments', icon: <ScienceRoundedIcon />, path: '/experiments' },
 ];
 
 const adminItems = [
-  { text: 'Upload Model Bundle', icon: <CloudUploadRoundedIcon />, path: '/models' },
   { text: 'Settings', icon: <SettingsRoundedIcon />, path: '/settings' },
-  { text: 'About Project', icon: <InfoRoundedIcon />, path: '/settings' },
+  { text: 'About Project', icon: <InfoRoundedIcon />, path: '/about' },
 ];
 
 export default function MenuContent() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isSelected = (path: string) => location.pathname === path;
+  // Exact match for all routes — each item now has a unique path so no
+  // accidental multi-highlight. Root '/' redirects to '/inference' so we
+  // treat them as the same.
+  const isSelected = (path: string) =>
+    location.pathname === path ||
+    (path === '/inference' && location.pathname === '/');
 
   return (
     <Stack sx={{ flexGrow: 1, p: 1, justifyContent: 'space-between' }}>

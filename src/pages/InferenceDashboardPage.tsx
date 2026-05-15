@@ -6,33 +6,16 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import { useNavigate } from 'react-router-dom';
+import { useSession } from '../context/SessionContext';
 
 export default function InferenceDashboardPage() {
   const navigate = useNavigate();
+  const { stats } = useSession();
 
-  const recentRuns = [
-    {
-      id: 'exp_001',
-      input: 'File Upload',
-      model: 'rawnet2_telco_v3',
-      prediction: 'synthetic',
-      confidence: 0.91,
-    },
-    {
-      id: 'exp_002',
-      input: 'Microphone',
-      model: 'wav2vec_detector_v1',
-      prediction: 'real',
-      confidence: 0.84,
-    },
-    {
-      id: 'exp_003',
-      input: 'System Audio',
-      model: 'rawnet2_telco_v3',
-      prediction: 'synthetic',
-      confidence: 0.88,
-    },
-  ];
+  const avgLatencyMs =
+    stats.totalRuns > 0
+      ? Math.round(stats.totalLatencyMs / stats.totalRuns)
+      : null;
 
   return (
     <Stack spacing={3}>
@@ -52,7 +35,9 @@ export default function InferenceDashboardPage() {
               <Typography variant="subtitle2" color="text.secondary">
                 Total Runs
               </Typography>
-              <Typography variant="h4">124</Typography>
+              <Typography variant="h4">
+                {stats.totalRuns > 0 ? stats.totalRuns : '—'}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -63,7 +48,9 @@ export default function InferenceDashboardPage() {
               <Typography variant="subtitle2" color="text.secondary">
                 Synthetic Detections
               </Typography>
-              <Typography variant="h4">81</Typography>
+              <Typography variant="h4" color={stats.syntheticDetections > 0 ? 'error' : 'text.primary'}>
+                {stats.totalRuns > 0 ? stats.syntheticDetections : '—'}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -74,7 +61,9 @@ export default function InferenceDashboardPage() {
               <Typography variant="subtitle2" color="text.secondary">
                 Real Detections
               </Typography>
-              <Typography variant="h4">43</Typography>
+              <Typography variant="h4" color={stats.realDetections > 0 ? 'success.main' : 'text.primary'}>
+                {stats.totalRuns > 0 ? stats.realDetections : '—'}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -85,11 +74,19 @@ export default function InferenceDashboardPage() {
               <Typography variant="subtitle2" color="text.secondary">
                 Avg. Latency
               </Typography>
-              <Typography variant="h4">210 ms</Typography>
+              <Typography variant="h4">
+                {avgLatencyMs !== null ? `${avgLatencyMs} ms` : '—'}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
+
+      {stats.totalRuns === 0 && (
+        <Typography variant="body2" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+          Stats will appear here once you run an inference session.
+        </Typography>
+      )}
 
       <Card variant="outlined">
         <CardContent>
@@ -110,41 +107,29 @@ export default function InferenceDashboardPage() {
         </CardContent>
       </Card>
 
-      <Card variant="outlined">
-        <CardContent>
-          <Stack spacing={2}>
-            <Typography variant="h6">Recent Runs</Typography>
-
-            {recentRuns.map((run) => (
-              <Card key={run.id} variant="outlined">
-                <CardContent>
-                  <Stack
-                    direction={{ xs: 'column', md: 'row' }}
-                    spacing={2}
-                    justifyContent="space-between"
-                    alignItems={{ xs: 'flex-start', md: 'center' }}
-                  >
-                    <Stack spacing={0.5}>
-                      <Typography variant="subtitle1">{run.id}</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {run.input} · {run.model}
-                      </Typography>
-                    </Stack>
-
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      <Chip
-                        label={run.prediction}
-                        color={run.prediction === 'synthetic' ? 'error' : 'success'}
-                      />
-                      <Chip label={`Confidence: ${(run.confidence * 100).toFixed(1)}%`} />
-                    </Stack>
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
-          </Stack>
-        </CardContent>
-      </Card>
+      {stats.totalRuns > 0 && (
+        <Card variant="outlined">
+          <CardContent>
+            <Stack spacing={2}>
+              <Typography variant="h6">This Session</Typography>
+              <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                <Chip label={`${stats.totalRuns} chunks processed`} />
+                <Chip
+                  label={`${stats.syntheticDetections} synthetic`}
+                  color={stats.syntheticDetections > 0 ? 'error' : 'default'}
+                />
+                <Chip
+                  label={`${stats.realDetections} real`}
+                  color={stats.realDetections > 0 ? 'success' : 'default'}
+                />
+                {avgLatencyMs !== null && (
+                  <Chip label={`avg ${avgLatencyMs} ms`} />
+                )}
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
     </Stack>
   );
 }

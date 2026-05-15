@@ -31,12 +31,15 @@ import { createTranscribeSession, type TranscribeResult, type WarmupProgress } f
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 import { aggregateChunks } from '../utils/aggregateChunks';
 import { mergeScamResult } from '../utils/mergeScamResult';
+import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 3;
 const SYNTHETIC_ALERT_THRESHOLD = 0.2;
 const ALERT_COOLDOWN_MS = 5_000;
+const SILENCE_RMS_THRESHOLD = 0.008;
 
 export default function SystemAudioInferencePage() {
+  const { settings, recordChunk } = useSession();
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
   const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -65,6 +68,7 @@ export default function SystemAudioInferencePage() {
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAlertTimeRef = React.useRef(0);
   const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number }>>([]);
+  const lastSignificantAudioRef = React.useRef<number>(0);
 
   const aggregated = React.useMemo(() => aggregateChunks(chunks), [chunks]);
 
@@ -149,6 +153,12 @@ export default function SystemAudioInferencePage() {
         }
         if (!payload.results) return;
         const pending = pendingSamplesRef.current.shift();
+
+        // Record session stats
+        payload.results.forEach((r) => {
+          recordChunk(r.prediction as 'synthetic' | 'real', r.inference_time_ms ?? 0);
+        });
+
         setChunks((prev) => {
           const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
           return [
@@ -189,6 +199,11 @@ export default function SystemAudioInferencePage() {
       audioStream,
       CHUNK_DURATION_SEC,
       (wav, _dur, samples, sampleRate) => {
+        // Silence detection: update timestamp when audio is above threshold
+        const rms = Math.sqrt(samples.reduce((sum, s) => sum + s * s, 0) / samples.length);
+        if (rms > SILENCE_RMS_THRESHOLD) {
+          lastSignificantAudioRef.current = Date.now();
+        }
         pendingSamplesRef.current.push({ samples, sampleRate });
         void sessionRef.current?.send(wav);
         void transcribeSessionRef.current?.send(wav);
@@ -208,6 +223,7 @@ export default function SystemAudioInferencePage() {
       setScamResult(null); setWarmupProgress(null);
       lastAlertTimeRef.current = 0;
       pendingSamplesRef.current = [];
+      lastSignificantAudioRef.current = Date.now();
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor' },
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -232,6 +248,7 @@ export default function SystemAudioInferencePage() {
       setScamResult(null); setWarmupProgress(null);
       lastAlertTimeRef.current = 0;
       pendingSamplesRef.current = [];
+      lastSignificantAudioRef.current = Date.now();
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
         video: false,
@@ -248,7 +265,7 @@ export default function SystemAudioInferencePage() {
     }
   };
 
-  const handleStop = () => {
+  const handleStop = React.useCallback(() => {
     stopTimer();
     recorderRef.current?.stop();
     cleanupStream();
@@ -258,7 +275,20 @@ export default function SystemAudioInferencePage() {
       transcribeSessionRef.current?.close();
       transcribeSessionRef.current = null;
     }, 1500);
-  };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Silence auto-stop
+  React.useEffect(() => {
+    if (!isCapturing || settings.silenceTimeoutSec === 0) return;
+    lastSignificantAudioRef.current = Date.now();
+    const id = setInterval(() => {
+      const silentMs = Date.now() - lastSignificantAudioRef.current;
+      if (silentMs >= settings.silenceTimeoutSec * 1000) {
+        handleStop();
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [isCapturing, settings.silenceTimeoutSec, handleStop]);
 
   React.useEffect(() => {
     return () => {
@@ -268,7 +298,7 @@ export default function SystemAudioInferencePage() {
       recorderRef.current?.stop();
       cleanupStream();
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const elapsed = `${String(Math.floor(elapsedSec / 60)).padStart(2, '0')}:${String(elapsedSec % 60).padStart(2, '0')}`;
 
@@ -278,6 +308,9 @@ export default function SystemAudioInferencePage() {
         <Typography variant="h4" gutterBottom>System Audio Capture</Typography>
         <Typography variant="body1" color="text.secondary">
           Capture what's playing on your system — inference runs every {CHUNK_DURATION_SEC} seconds in real time.
+          {settings.silenceTimeoutSec > 0 && (
+            <> Auto-stops after {settings.silenceTimeoutSec}s of silence.</>
+          )}
         </Typography>
       </div>
 
