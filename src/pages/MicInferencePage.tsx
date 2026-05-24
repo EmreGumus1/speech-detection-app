@@ -44,7 +44,7 @@ export default function MicInferencePage() {
   const recorderRef = React.useRef<PcmStreamRecorder | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number }>>([]);
+  const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number; isSilent: boolean }>>([]);
   // Silence detection: timestamp of last chunk with audio above threshold
   const lastSignificantAudioRef = React.useRef<number>(0);
 
@@ -115,13 +115,18 @@ export default function MicInferencePage() {
           if (!payload.results) return;
           const pending = pendingSamplesRef.current.shift();
 
-          // Record stats for every result item in this chunk
-          payload.results.forEach((r) => {
-            recordChunk(
-              r.prediction as 'synthetic' | 'real',
-              r.inference_time_ms ?? 0,
-            );
-          });
+          // Silence chunks: drop the (bogus) deepfake result, keep the chunk in
+          // the timeline so the waveform shows a flat gray segment.
+          const results = pending?.isSilent ? [] : payload.results;
+
+          if (!pending?.isSilent) {
+            payload.results.forEach((r) => {
+              recordChunk(
+                r.prediction as 'synthetic' | 'real',
+                r.inference_time_ms ?? 0,
+              );
+            });
+          }
 
           setChunks((prev) => {
             const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
@@ -131,7 +136,7 @@ export default function MicInferencePage() {
                 index: prev.length,
                 startSec,
                 durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
-                results: payload.results!,
+                results,
                 samples: pending?.samples,
                 sampleRate: pending?.sampleRate,
               },
@@ -165,14 +170,16 @@ export default function MicInferencePage() {
         stream,
         CHUNK_DURATION_SEC,
         (wavBlob, _dur, samples, sampleRate) => {
-          // Silence detection: compute RMS
           const rms = Math.sqrt(
             samples.reduce((sum, s) => sum + s * s, 0) / samples.length,
           );
-          if (rms > SILENCE_RMS_THRESHOLD) {
-            lastSignificantAudioRef.current = Date.now();
-          }
-          pendingSamplesRef.current.push({ samples, sampleRate });
+          const isSilent = rms <= SILENCE_RMS_THRESHOLD;
+          if (!isSilent) lastSignificantAudioRef.current = Date.now();
+          // Send to both backends regardless to keep the timing windows aligned
+          // (Whisper's window_start_sec must match cumulative chunk.startSec on
+          // the frontend). Silent chunks get their deepfake result wiped in the
+          // onmessage handler; Whisper natively skips them via no_speech_threshold.
+          pendingSamplesRef.current.push({ samples, sampleRate, isSilent });
           void sessionRef.current?.send(wavBlob);
           void transcribeSessionRef.current?.send(wavBlob);
         },
