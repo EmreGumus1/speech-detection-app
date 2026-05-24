@@ -132,6 +132,7 @@ export default function FileInferencePage() {
               warmup={null}
               isActive={isTranscribing}
               showTranscript={showTranscript}
+              chunks={chunks}
             />
           </Stack>
         </Grid>

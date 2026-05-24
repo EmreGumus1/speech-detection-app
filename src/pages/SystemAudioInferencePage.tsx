@@ -454,6 +454,7 @@ export default function SystemAudioInferencePage() {
               warmup={warmupProgress}
               isActive={isCapturing && whisperEnabled && !!selectedWhisperModel}
               showTranscript={showTranscript}
+              chunks={chunks}
             />
           </Stack>
         </Grid>

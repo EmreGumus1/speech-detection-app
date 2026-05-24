@@ -269,6 +269,7 @@ export default function MicInferencePage() {
               warmup={warmupProgress}
               isActive={isRecording && whisperEnabled && !!selectedWhisperModel}
               showTranscript={showTranscript}
+              chunks={chunks}
             />
           </Stack>
         </Grid>
