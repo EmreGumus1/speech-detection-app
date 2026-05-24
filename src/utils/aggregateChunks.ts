@@ -15,10 +15,15 @@ export function toSyntheticProbability(item: InferenceResultItem): number {
   return item.prediction === 'synthetic' ? item.confidence : 1 - item.confidence;
 }
 
-export function aggregateChunks(chunks: ChunkResult[]): AggregatedRow[] {
+export function aggregateChunks(chunks: ChunkResult[], windowSize?: number): AggregatedRow[] {
+  const effective =
+    windowSize && windowSize > 0 && chunks.length > windowSize
+      ? chunks.slice(-windowSize)
+      : chunks;
+
   const byModel = new Map<string, { name: string; sum: number; count: number }>();
 
-  for (const chunk of chunks) {
+  for (const chunk of effective) {
     if (!chunk.results) continue;
     for (const item of chunk.results) {
       const prob = toSyntheticProbability(item);

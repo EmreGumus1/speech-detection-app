@@ -34,9 +34,10 @@ import { mergeScamResult } from '../utils/mergeScamResult';
 import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 3;
-const SYNTHETIC_ALERT_THRESHOLD = 0.2;
+const SYNTHETIC_ALERT_THRESHOLD = 0.6;
 const ALERT_COOLDOWN_MS = 5_000;
 const SILENCE_RMS_THRESHOLD = 0.008;
+const LIVE_WINDOW_CHUNKS = 10; // moving-window size for live verdict + alerts
 
 export default function SystemAudioInferencePage() {
   const { settings, recordChunk } = useSession();
@@ -70,7 +71,7 @@ export default function SystemAudioInferencePage() {
   const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number; isSilent: boolean }>>([]);
   const lastSignificantAudioRef = React.useRef<number>(0);
 
-  const aggregated = React.useMemo(() => aggregateChunks(chunks), [chunks]);
+  const aggregated = React.useMemo(() => aggregateChunks(chunks, LIVE_WINDOW_CHUNKS), [chunks]);
 
   React.useEffect(() => {
     if (!notificationsEnabled) return;
@@ -453,7 +454,7 @@ export default function SystemAudioInferencePage() {
               isStreaming={isCapturing}
             />
 
-            <ResultsPanel chunks={chunks} isStreaming={isCapturing} />
+            <ResultsPanel chunks={chunks} isStreaming={isCapturing} windowSize={LIVE_WINDOW_CHUNKS} />
 
             <ScamResultPanel
               result={scamResult}

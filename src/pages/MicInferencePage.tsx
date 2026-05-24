@@ -21,6 +21,7 @@ import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 1;
 const SILENCE_RMS_THRESHOLD = 0.008; // below this = silence
+const LIVE_WINDOW_CHUNKS = 10; // moving-window size for the live verdict
 
 export default function MicInferencePage() {
   const { settings, recordChunk } = useSession();
@@ -269,7 +270,7 @@ export default function MicInferencePage() {
               isStreaming={isRecording}
             />
 
-            <ResultsPanel chunks={chunks} isStreaming={isRecording} />
+            <ResultsPanel chunks={chunks} isStreaming={isRecording} windowSize={LIVE_WINDOW_CHUNKS} />
 
             <ScamResultPanel
               result={scamResult}
