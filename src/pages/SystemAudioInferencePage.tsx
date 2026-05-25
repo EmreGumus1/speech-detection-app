@@ -36,7 +36,7 @@ import { useSession } from '../context/SessionContext';
 const CHUNK_DURATION_SEC = 3;
 const SYNTHETIC_ALERT_THRESHOLD = 0.2;
 const ALERT_COOLDOWN_MS = 5_000;
-const SILENCE_RMS_THRESHOLD = 0.008;
+const SILENCE_RMS_THRESHOLD = 0.02; // raised to ignore background noise
 
 export default function SystemAudioInferencePage() {
   const { settings, recordChunk } = useSession();
@@ -52,6 +52,7 @@ export default function SystemAudioInferencePage() {
   const [alertMsg, setAlertMsg] = React.useState('');
   const [alertKey, setAlertKey] = React.useState(0);
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
+  const [silenceAlert, setSilenceAlert] = React.useState<string | null>(null);
 
   // Whisper state
   const [whisperEnabled, setWhisperEnabled] = React.useState(true);
@@ -219,7 +220,7 @@ export default function SystemAudioInferencePage() {
 
   const handleStartDisplay = async () => {
     try {
-      setError(null); setChunks([]); setElapsedSec(0);
+      setError(null); setSilenceAlert(null); setChunks([]); setElapsedSec(0);
       setScamResult(null); setWarmupProgress(null);
       lastAlertTimeRef.current = 0;
       pendingSamplesRef.current = [];
@@ -244,7 +245,7 @@ export default function SystemAudioInferencePage() {
 
   const handleStartDevice = async () => {
     try {
-      setError(null); setChunks([]); setElapsedSec(0);
+      setError(null); setSilenceAlert(null); setChunks([]); setElapsedSec(0);
       setScamResult(null); setWarmupProgress(null);
       lastAlertTimeRef.current = 0;
       pendingSamplesRef.current = [];
@@ -284,6 +285,10 @@ export default function SystemAudioInferencePage() {
     const id = setInterval(() => {
       const silentMs = Date.now() - lastSignificantAudioRef.current;
       if (silentMs >= settings.silenceTimeoutSec * 1000) {
+        clearInterval(id);
+        setSilenceAlert(
+          `Capture stopped automatically — no audio detected for ${settings.silenceTimeoutSec}s.`,
+        );
         handleStop();
       }
     }, 500);
@@ -315,6 +320,11 @@ export default function SystemAudioInferencePage() {
       </div>
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
+      {silenceAlert && (
+        <Alert severity="warning" onClose={() => setSilenceAlert(null)}>
+          {silenceAlert}
+        </Alert>
+      )}
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 8 }}>

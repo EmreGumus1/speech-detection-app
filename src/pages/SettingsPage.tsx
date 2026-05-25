@@ -1,4 +1,5 @@
 import * as React from 'react';
+import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Divider from '@mui/material/Divider';
@@ -76,21 +77,23 @@ export default function SettingsPage() {
                   {seconds} s
                 </Typography>
               </Stack>
-              <Slider
-                value={seconds}
-                onChange={handleSliderChange}
-                min={3}
-                max={60}
-                step={1}
-                marks={[
-                  { value: 3, label: '3 s' },
-                  { value: 15, label: '15 s' },
-                  { value: 30, label: '30 s' },
-                  { value: 60, label: '60 s' },
-                ]}
-                valueLabelDisplay="auto"
-                valueLabelFormat={(v) => `${v} s`}
-              />
+              <Box sx={{ px: 1, pb: 3 }}>
+                <Slider
+                  value={seconds}
+                  onChange={handleSliderChange}
+                  min={3}
+                  max={60}
+                  step={1}
+                  marks={[
+                    { value: 3, label: '3 s' },
+                    { value: 15, label: '15 s' },
+                    { value: 30, label: '30 s' },
+                    { value: 60, label: '60 s' },
+                  ]}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={(v) => `${v} s`}
+                />
+              </Box>
             </Stack>
           </Stack>
         </CardContent>

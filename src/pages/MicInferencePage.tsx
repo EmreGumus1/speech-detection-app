@@ -20,7 +20,7 @@ import { mergeScamResult } from '../utils/mergeScamResult';
 import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 1;
-const SILENCE_RMS_THRESHOLD = 0.008; // below this = silence
+const SILENCE_RMS_THRESHOLD = 0.02; // below this = silence (raised to ignore background noise)
 
 export default function MicInferencePage() {
   const { settings, recordChunk } = useSession();
@@ -28,6 +28,7 @@ export default function MicInferencePage() {
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
   const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+  const [silenceAlert, setSilenceAlert] = React.useState<string | null>(null);
   const [isRecording, setIsRecording] = React.useState(false);
   const [elapsedSec, setElapsedSec] = React.useState(0);
 
@@ -79,6 +80,10 @@ export default function MicInferencePage() {
     const id = setInterval(() => {
       const silentMs = Date.now() - lastSignificantAudioRef.current;
       if (silentMs >= settings.silenceTimeoutSec * 1000) {
+        clearInterval(id);
+        setSilenceAlert(
+          `Recording stopped automatically — no audio detected for ${settings.silenceTimeoutSec}s.`,
+        );
         handleStop();
       }
     }, 500);
@@ -88,6 +93,7 @@ export default function MicInferencePage() {
   const handleStart = async () => {
     try {
       setError(null);
+      setSilenceAlert(null);
       setChunks([]);
       setElapsedSec(0);
       setScamResult(null);
@@ -216,6 +222,11 @@ export default function MicInferencePage() {
       </div>
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
+      {silenceAlert && (
+        <Alert severity="warning" onClose={() => setSilenceAlert(null)}>
+          {silenceAlert}
+        </Alert>
+      )}
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 8 }}>
