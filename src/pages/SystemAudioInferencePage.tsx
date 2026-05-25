@@ -70,6 +70,8 @@ export default function SystemAudioInferencePage() {
   const lastAlertTimeRef = React.useRef(0);
   const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number; isSilent: boolean }>>([]);
   const lastSignificantAudioRef = React.useRef<number>(0);
+  const hasReceivedSignalRef = React.useRef(false);
+  const noAudioWarnTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const aggregated = React.useMemo(() => aggregateChunks(chunks, LIVE_WINDOW_CHUNKS), [chunks]);
 
@@ -207,7 +209,10 @@ export default function SystemAudioInferencePage() {
       (wav, _dur, samples, sampleRate) => {
         const rms = Math.sqrt(samples.reduce((sum, s) => sum + s * s, 0) / samples.length);
         const isSilent = rms <= SILENCE_RMS_THRESHOLD;
-        if (!isSilent) lastSignificantAudioRef.current = Date.now();
+        if (!isSilent) {
+          lastSignificantAudioRef.current = Date.now();
+          hasReceivedSignalRef.current = true;
+        }
         // Send to both backends regardless to keep the timing windows aligned.
         // Silent chunks get their deepfake result wiped in the onmessage handler;
         // Whisper natively skips them via no_speech_threshold.
@@ -218,6 +223,18 @@ export default function SystemAudioInferencePage() {
     );
     recorderRef.current = recorder;
     recorder.start();
+
+    // If no real audio arrives within ~3 chunks the share probably didn't
+    // include system audio — warn the user to re-share.
+    hasReceivedSignalRef.current = false;
+    if (noAudioWarnTimerRef.current) clearTimeout(noAudioWarnTimerRef.current);
+    noAudioWarnTimerRef.current = setTimeout(() => {
+      if (!hasReceivedSignalRef.current && streamRef.current) {
+        setError(
+          'No audio detected from the shared source. Stop and start again — in the share dialog, make sure "Share system audio" is checked.',
+        );
+      }
+    }, CHUNK_DURATION_SEC * 1000 * 3 + 500);
 
     stream.getAudioTracks()[0].onended = () => handleStop();
     timerRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
@@ -274,6 +291,10 @@ export default function SystemAudioInferencePage() {
 
   const handleStop = React.useCallback(() => {
     stopTimer();
+    if (noAudioWarnTimerRef.current) {
+      clearTimeout(noAudioWarnTimerRef.current);
+      noAudioWarnTimerRef.current = null;
+    }
     recorderRef.current?.stop();
     cleanupStream();
     setIsCapturing(false);
@@ -300,6 +321,7 @@ export default function SystemAudioInferencePage() {
   React.useEffect(() => {
     return () => {
       stopTimer();
+      if (noAudioWarnTimerRef.current) clearTimeout(noAudioWarnTimerRef.current);
       sessionRef.current?.close();
       transcribeSessionRef.current?.close();
       recorderRef.current?.stop();
