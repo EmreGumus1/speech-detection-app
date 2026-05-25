@@ -19,9 +19,11 @@ export type ChunkResult = {
 type ResultsPanelProps = {
   chunks: ChunkResult[];
   isStreaming?: boolean;
+  /** If set, the live verdict aggregates only the last N chunks (moving window). */
+  windowSize?: number;
 };
 
-export default function ResultsPanel({ chunks, isStreaming = false }: ResultsPanelProps) {
+export default function ResultsPanel({ chunks, isStreaming = false, windowSize }: ResultsPanelProps) {
   if (chunks.length === 0) {
     return (
       <Card variant="outlined">
@@ -38,8 +40,9 @@ export default function ResultsPanel({ chunks, isStreaming = false }: ResultsPan
     );
   }
 
-  const aggregated = aggregateChunks(chunks);
+  const aggregated = aggregateChunks(chunks, windowSize);
   const lastChunk = chunks[chunks.length - 1];
+  const isWindowed = !!windowSize && chunks.length > windowSize;
 
   return (
     <Stack spacing={2}>
@@ -50,7 +53,11 @@ export default function ResultsPanel({ chunks, isStreaming = false }: ResultsPan
             <Stack direction="row" alignItems="center" justifyContent="space-between">
               <Typography variant="h6">Live Result</Typography>
               <Typography variant="caption" color="text.secondary">
-                {chunks.length} chunk{chunks.length === 1 ? '' : 's'} · {isStreaming ? 'streaming' : 'stopped'}
+                {isWindowed
+                  ? `last ${windowSize} of ${chunks.length} chunks`
+                  : `${chunks.length} chunk${chunks.length === 1 ? '' : 's'}`}
+                {' · '}
+                {isStreaming ? 'streaming' : 'stopped'}
               </Typography>
             </Stack>
 

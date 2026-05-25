@@ -1,4 +1,4 @@
-import type { TranscribeResult, ScamMatch } from '../api/whisper';
+import type { TranscribeResult, ScamMatch, WhisperSegment } from '../api/whisper';
 
 function mergeMatches(existing: ScamMatch[], incoming: ScamMatch[]): ScamMatch[] {
   const map = new Map<string, Set<string>>();
@@ -19,20 +19,47 @@ function mergeMatches(existing: ScamMatch[], incoming: ScamMatch[]): ScamMatch[]
   }));
 }
 
+// Converts incoming segment timestamps from window-relative to absolute.
+function toAbsoluteSegments(
+  segments: WhisperSegment[] | undefined,
+  windowStartSec: number,
+): WhisperSegment[] {
+  if (!segments) return [];
+  return segments.map((s) => ({
+    ...s,
+    start: s.start + windowStartSec,
+    end: s.end + windowStartSec,
+  }));
+}
+
 /**
  * Merges a new Whisper result into the accumulated one.
  * - Transcript and language come from the latest result.
  * - Scam patterns are accumulated: once a category is matched it stays visible
  *   even if it leaves the sliding window.
+ * - Segments are stored in absolute time. On each new emission we drop the
+ *   accumulated tail that overlaps the new window (because the same segment
+ *   can appear in successive 30s sliding-window emissions with refined
+ *   timestamps) and replace it with the incoming segments.
  */
 export function mergeScamResult(
   accumulated: TranscribeResult | null,
   incoming: TranscribeResult,
 ): TranscribeResult {
-  if (!accumulated) return incoming;
+  const incomingWindowStart = incoming.window_start_sec ?? 0;
+  const incomingAbsSegments = toAbsoluteSegments(incoming.segments, incomingWindowStart);
+
+  if (!accumulated) {
+    return { ...incoming, segments: incomingAbsSegments };
+  }
 
   const english = mergeMatches(accumulated.scam_detection.english, incoming.scam_detection.english);
   const italian = mergeMatches(accumulated.scam_detection.italian, incoming.scam_detection.italian);
+
+  const keptSegments = (accumulated.segments ?? []).filter(
+    (s) => s.end <= incomingWindowStart,
+  );
+  const mergedSegments = [...keptSegments, ...incomingAbsSegments];
 
   return {
     ...incoming,
@@ -41,5 +68,6 @@ export function mergeScamResult(
       english,
       italian,
     },
+    segments: mergedSegments,
   };
 }

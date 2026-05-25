@@ -1,4 +1,5 @@
 import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
@@ -9,15 +10,21 @@ import Typography from '@mui/material/Typography';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import type { TranscribeResult, WarmupProgress } from '../../api/whisper';
+import type { ChunkResult } from './ResultsPanel';
+import { chunksToGradient } from '../../utils/chunksToGradient';
+import SegmentedTranscript from './SegmentedTranscript';
 
 type ScamResultPanelProps = {
   result: TranscribeResult | null;
   warmup: WarmupProgress | null;
   isActive: boolean;
   showTranscript: boolean;
+  chunks?: ChunkResult[];
 };
 
-export default function ScamResultPanel({ result, warmup, isActive, showTranscript }: ScamResultPanelProps) {
+export default function ScamResultPanel({ result, warmup, isActive, showTranscript, chunks = [] }: ScamResultPanelProps) {
+  const stripGradient = chunksToGradient(chunks, 1);
+  const totalDurationSec = chunks.reduce((acc, c) => acc + c.durationSec, 0);
   if (!result && !isActive) {
     return (
       <Card variant="outlined">
@@ -60,7 +67,8 @@ export default function ScamResultPanel({ result, warmup, isActive, showTranscri
 
   if (!result) return null;
 
-  const { transcript, language_detected, scam_detection, window_start_sec, window_end_sec } = result;
+  const { transcript, language_detected, scam_detection, window_start_sec, window_end_sec, segments } = result;
+  const hasSegments = !!segments && segments.length > 0;
   const hasEnglish = scam_detection.english.length > 0;
   const hasItalian = scam_detection.italian.length > 0;
   const hasMatches = hasEnglish || hasItalian;
@@ -95,19 +103,45 @@ export default function ScamResultPanel({ result, warmup, isActive, showTranscri
               </Stack>
             </Stack>
 
-            <Typography
-              variant="body2"
-              sx={{
-                whiteSpace: 'pre-wrap',
-                maxHeight: 160,
-                overflowY: 'auto',
-                fontStyle: transcript ? 'normal' : 'italic',
-                color: transcript ? 'text.primary' : 'text.secondary',
-                lineHeight: 1.6,
-              }}
-            >
-              {transcript || 'No speech detected in this window.'}
-            </Typography>
+            {stripGradient && (
+              <Stack spacing={0.5}>
+                <Typography variant="caption" color="text.secondary">
+                  Synthetic probability over time
+                </Typography>
+                <Box
+                  aria-hidden
+                  sx={{
+                    height: 14,
+                    borderRadius: 1,
+                    backgroundImage: stripGradient,
+                  }}
+                />
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="caption" color="text.secondary">0s</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {totalDurationSec.toFixed(0)}s
+                  </Typography>
+                </Stack>
+              </Stack>
+            )}
+
+            {hasSegments ? (
+              <SegmentedTranscript segments={segments!} chunks={chunks} />
+            ) : (
+              <Typography
+                variant="body2"
+                sx={{
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: 160,
+                  overflowY: 'auto',
+                  fontStyle: transcript ? 'normal' : 'italic',
+                  color: transcript ? 'text.primary' : 'text.secondary',
+                  lineHeight: 1.6,
+                }}
+              >
+                {transcript || 'No speech detected in this window.'}
+              </Typography>
+            )}
           </Stack>
         </CardContent>
       </Card>}

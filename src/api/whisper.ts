@@ -20,6 +20,12 @@ export type ScamDetection = {
   italian: ScamMatch[];
 };
 
+export type WhisperSegment = {
+  start: number;
+  end: number;
+  text: string;
+};
+
 export type TranscribeResult = {
   warmup: false;
   transcript: string;
@@ -28,6 +34,7 @@ export type TranscribeResult = {
   duration_sec?: number;
   window_start_sec?: number;
   window_end_sec?: number;
+  segments?: WhisperSegment[];
 };
 
 export type WarmupProgress = {

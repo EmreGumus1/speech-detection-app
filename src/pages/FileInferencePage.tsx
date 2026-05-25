@@ -15,6 +15,7 @@ import { transcribeFile, type TranscribeResult } from '../api/whisper';
 import { splitAudioFileIntoWavChunks } from '../utils/audioChunking';
 
 const CHUNK_DURATION_SEC = 3;
+const SILENCE_RMS_THRESHOLD = 0.008;
 
 export default function FileInferencePage() {
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
@@ -58,21 +59,39 @@ export default function FileInferencePage() {
 
       for (let i = 0; i < wavChunks.length; i++) {
         const { wav, samples, sampleRate } = wavChunks[i];
-        const chunkFile = new File([wav], `chunk_${i}.wav`, { type: 'audio/wav' });
-        const data = await predictFile(chunkFile, selectedModels, 'file');
         const startSec = i * CHUNK_DURATION_SEC;
+        const rms = Math.sqrt(samples.reduce((sum, s) => sum + s * s, 0) / samples.length);
+        const isSilent = rms <= SILENCE_RMS_THRESHOLD;
 
-        setChunks((prev) => [
-          ...prev,
-          {
-            index: i,
-            startSec,
-            durationSec: data.duration_sec ?? CHUNK_DURATION_SEC,
-            results: data.results,
-            samples,
-            sampleRate,
-          },
-        ]);
+        if (isSilent) {
+          // Skip deepfake inference on silence (bogus scores); keep the chunk in
+          // the timeline so the waveform stays correctly spaced.
+          setChunks((prev) => [
+            ...prev,
+            {
+              index: i,
+              startSec,
+              durationSec: CHUNK_DURATION_SEC,
+              results: [],
+              samples,
+              sampleRate,
+            },
+          ]);
+        } else {
+          const chunkFile = new File([wav], `chunk_${i}.wav`, { type: 'audio/wav' });
+          const data = await predictFile(chunkFile, selectedModels, 'file');
+          setChunks((prev) => [
+            ...prev,
+            {
+              index: i,
+              startSec,
+              durationSec: data.duration_sec ?? CHUNK_DURATION_SEC,
+              results: data.results,
+              samples,
+              sampleRate,
+            },
+          ]);
+        }
         setProgress({ done: i + 1, total: wavChunks.length });
       }
     } catch (err) {
@@ -132,6 +151,7 @@ export default function FileInferencePage() {
               warmup={null}
               isActive={isTranscribing}
               showTranscript={showTranscript}
+              chunks={chunks}
             />
           </Stack>
         </Grid>
