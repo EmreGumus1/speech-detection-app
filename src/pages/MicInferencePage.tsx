@@ -21,6 +21,7 @@ import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 1;
 const SILENCE_RMS_THRESHOLD = 0.02; // below this = silence (raised to ignore background noise)
+const LIVE_WINDOW_CHUNKS = 30;      // rolling window shown in ResultsPanel (30 × 1 s = 30 s)
 
 export default function MicInferencePage() {
   const { settings, recordChunk } = useSession();

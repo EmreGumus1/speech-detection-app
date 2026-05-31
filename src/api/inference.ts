@@ -29,6 +29,25 @@ export async function getModels() {
   return response.json();
 }
 
+export async function getModelStatus(modelId: string): Promise<{
+  model_id: string;
+  is_downloaded: boolean;
+  download_state: string;
+}> {
+  const response = await fetch(`${API_BASE_URL}/models/${encodeURIComponent(modelId)}/status`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function downloadModel(modelId: string): Promise<{ status: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/models/${encodeURIComponent(modelId)}/download`,
+    { method: 'POST' },
+  );
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
 export function createRealtimeSession(
   modelIds: string[],
   onResult: (data: unknown) => void,

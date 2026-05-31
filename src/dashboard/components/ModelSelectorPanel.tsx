@@ -2,19 +2,19 @@ import * as React from 'react';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Checkbox from '@mui/material/Checkbox';
+import CircularProgress from '@mui/material/CircularProgress';
+import Divider from '@mui/material/Divider';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
-import Alert from '@mui/material/Alert';
 import { getModels } from '../../api/inference';
 
 type ModelItem = {
   id: string;
   name: string;
-  framework: string;
   supports_realtime: boolean;
+  is_downloaded: boolean;
 };
 
 type ModelSelectorPanelProps = {
@@ -22,106 +22,84 @@ type ModelSelectorPanelProps = {
   onChange: (models: string[]) => void;
 };
 
-export default function ModelSelectorPanel({
-  selectedModels,
-  onChange,
-}: ModelSelectorPanelProps) {
+export default function ModelSelectorPanel({ selectedModels, onChange }: ModelSelectorPanelProps) {
   const [models, setModels] = React.useState<ModelItem[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     getModels()
       .then((data: ModelItem[]) => {
-        if (!cancelled) {
-          setModels(data);
-          // Auto-select first model if none selected
-          if (selectedModels.length === 0 && data.length > 0) {
-            onChange([data[0].id]);
-          }
+        if (cancelled) return;
+        setModels(data);
+        if (selectedModels.length === 0) {
+          const first = data.find((m) => m.is_downloaded);
+          if (first) onChange([first.id]);
         }
       })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message ?? 'Failed to load models');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleModel = (modelId: string) => {
-    if (selectedModels.includes(modelId)) {
-      onChange(selectedModels.filter((id) => id !== modelId));
-    } else {
-      onChange([...selectedModels, modelId]);
-    }
-  };
+  const toggle = (id: string) =>
+    onChange(
+      selectedModels.includes(id)
+        ? selectedModels.filter((x) => x !== id)
+        : [...selectedModels, id],
+    );
 
   return (
     <Card variant="outlined">
-      <CardContent>
-        <Stack spacing={2}>
-          <div>
-            <Typography variant="h6">Models</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Select one or more models for inference.
-            </Typography>
-          </div>
+      <CardContent sx={{ pb: '12px !important' }}>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+          Detection Models
+        </Typography>
 
-          {loading && (
-            <Stack alignItems="center" py={2}>
-              <CircularProgress size={24} />
-            </Stack>
-          )}
-
-          {error && (
-            <Alert severity="error" sx={{ fontSize: '0.75rem' }}>
-              {error}
-            </Alert>
-          )}
-
-          {!loading && !error && models.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              No models available.
-            </Typography>
-          )}
-
-          {models.map((model) => (
-            <Stack
-              key={model.id}
-              spacing={1}
-              sx={{
-                border: '1px solid',
-                borderColor: selectedModels.includes(model.id) ? 'primary.main' : 'divider',
-                borderRadius: 2,
-                p: 1.5,
-              }}
-            >
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={selectedModels.includes(model.id)}
-                    onChange={() => toggleModel(model.id)}
-                  />
-                }
-                label={model.name}
-              />
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Chip label={model.framework} size="small" />
-                <Chip
-                  label={model.supports_realtime ? 'Realtime' : 'File only'}
-                  color={model.supports_realtime ? 'success' : 'default'}
-                  size="small"
+        {loading ? (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 1 }}>
+            <CircularProgress size={14} />
+            <Typography variant="caption" color="text.secondary">Loading…</Typography>
+          </Stack>
+        ) : (
+          <Stack divider={<Divider flexItem />}>
+            {models.map((model) => (
+              <Tooltip
+                key={model.id}
+                title={model.is_downloaded ? '' : 'Not downloaded — visit the Models page to download'}
+                placement="left"
+                disableHoverListener={model.is_downloaded}
+              >
+                <FormControlLabel
+                  disabled={!model.is_downloaded}
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={selectedModels.includes(model.id)}
+                      onChange={() => toggle(model.id)}
+                      sx={{ py: 0.5 }}
+                    />
+                  }
+                  label={
+                    <Typography
+                      variant="body2"
+                      sx={{ color: model.is_downloaded ? 'text.primary' : 'text.disabled' }}
+                    >
+                      {model.name}
+                    </Typography>
+                  }
+                  sx={{ mx: 0, width: '100%' }}
                 />
-              </Stack>
-            </Stack>
-          ))}
-        </Stack>
+              </Tooltip>
+            ))}
+          </Stack>
+        )}
+
+        {!loading && models.some((m) => !m.is_downloaded) && (
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>
+            Some models need downloading — see the Models page.
+          </Typography>
+        )}
       </CardContent>
     </Card>
   );
