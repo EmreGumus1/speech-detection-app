@@ -31,12 +31,13 @@ import { createTranscribeSession, type TranscribeResult, type WarmupProgress } f
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 import { aggregateChunks } from '../utils/aggregateChunks';
 import { mergeScamResult } from '../utils/mergeScamResult';
+import { isSilentChunk } from '../utils/silence';
 import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 3;
-const SYNTHETIC_ALERT_THRESHOLD = 0.2;
+const SYNTHETIC_ALERT_THRESHOLD = 0.6;
 const ALERT_COOLDOWN_MS = 5_000;
-const SILENCE_RMS_THRESHOLD = 0.02; // raised to ignore background noise
+const LIVE_WINDOW_CHUNKS = 10; // moving-window size for live verdict + alerts
 
 export default function SystemAudioInferencePage() {
   const { settings, recordChunk } = useSession();
@@ -68,10 +69,10 @@ export default function SystemAudioInferencePage() {
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAlertTimeRef = React.useRef(0);
-  const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number }>>([]);
+  const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number; isSilent: boolean }>>([]);
   const lastSignificantAudioRef = React.useRef<number>(0);
 
-  const aggregated = React.useMemo(() => aggregateChunks(chunks), [chunks]);
+  const aggregated = React.useMemo(() => aggregateChunks(chunks, LIVE_WINDOW_CHUNKS), [chunks]);
 
   React.useEffect(() => {
     if (!notificationsEnabled) return;
@@ -147,16 +148,22 @@ export default function SystemAudioInferencePage() {
       selectedModels,
       (data) => {
         const payload = data as { duration_sec?: number; results?: ChunkResult['results']; error?: string };
-        if (payload.error) {
-          pendingSamplesRef.current.shift();
-          setError(payload.error);
+        if (!payload.results && !payload.error) {
+          // Not a per-chunk response (e.g. status message) — don't touch the
+          // pending queue or the alignment with sent chunks breaks.
+          console.warn('Unexpected /ws/predict message:', payload);
           return;
         }
-        if (!payload.results) return;
         const pending = pendingSamplesRef.current.shift();
+        if (payload.error) setError(payload.error);
+
+        // Silence (or errored) chunks: drop the (bogus) deepfake result, keep
+        // the chunk in the timeline so the waveform shows a flat gray segment.
+        const isSilent = pending?.isSilent ?? false;
+        const results = payload.error || isSilent ? [] : payload.results!;
 
         // Record session stats
-        payload.results.forEach((r) => {
+        results.forEach((r) => {
           recordChunk(r.prediction as 'synthetic' | 'real', r.inference_time_ms ?? 0);
         });
 
@@ -168,7 +175,8 @@ export default function SystemAudioInferencePage() {
               index: prev.length,
               startSec,
               durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
-              results: payload.results!,
+              results,
+              isSilent,
               samples: pending?.samples,
               sampleRate: pending?.sampleRate,
             },
@@ -200,12 +208,14 @@ export default function SystemAudioInferencePage() {
       audioStream,
       CHUNK_DURATION_SEC,
       (wav, _dur, samples, sampleRate) => {
-        // Silence detection: update timestamp when audio is above threshold
-        const rms = Math.sqrt(samples.reduce((sum, s) => sum + s * s, 0) / samples.length);
-        if (rms > SILENCE_RMS_THRESHOLD) {
+        const isSilent = isSilentChunk(samples);
+        if (!isSilent) {
           lastSignificantAudioRef.current = Date.now();
         }
-        pendingSamplesRef.current.push({ samples, sampleRate });
+        // Send to both backends regardless to keep the timing windows aligned.
+        // Silent chunks get their deepfake result wiped in the onmessage handler;
+        // Whisper natively skips them via no_speech_threshold.
+        pendingSamplesRef.current.push({ samples, sampleRate, isSilent });
         void sessionRef.current?.send(wav);
         void transcribeSessionRef.current?.send(wav);
       },
@@ -457,13 +467,14 @@ export default function SystemAudioInferencePage() {
               isStreaming={isCapturing}
             />
 
-            <ResultsPanel chunks={chunks} isStreaming={isCapturing} />
+            <ResultsPanel chunks={chunks} isStreaming={isCapturing} windowSize={LIVE_WINDOW_CHUNKS} />
 
             <ScamResultPanel
               result={scamResult}
               warmup={warmupProgress}
               isActive={isCapturing && whisperEnabled && !!selectedWhisperModel}
               showTranscript={showTranscript}
+              chunks={chunks}
             />
           </Stack>
         </Grid>
