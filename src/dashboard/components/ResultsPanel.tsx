@@ -14,6 +14,8 @@ export type ChunkResult = {
   results: InferenceResultItem[];
   samples?: Float32Array;
   sampleRate?: number;
+  /** True when the chunk was flagged as silence and its results were dropped. */
+  isSilent?: boolean;
 };
 
 type ResultsPanelProps = {
@@ -61,6 +63,16 @@ export default function ResultsPanel({ chunks, isStreaming = false, windowSize }
               </Typography>
             </Stack>
 
+            {aggregated.length === 0 && (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Chip label="SILENCE" size="small" variant="outlined" />
+                <Typography variant="body2" color="text.secondary">
+                  No speech detected {isWindowed ? `in the last ${windowSize} chunks` : 'yet'} —
+                  scores resume as soon as audio comes back.
+                </Typography>
+              </Stack>
+            )}
+
             {aggregated.map((row) => (
               <Stack key={row.modelId} spacing={1}>
                 <Stack direction="row" spacing={1} alignItems="center">
@@ -91,7 +103,7 @@ export default function ResultsPanel({ chunks, isStreaming = false, windowSize }
       </Card>
 
       {/* Last chunk detail */}
-      {lastChunk?.results?.length > 0 && (
+      {(lastChunk?.results?.length > 0 || lastChunk?.isSilent) && (
         <Card variant="outlined">
           <CardContent>
             <Stack spacing={1}>
@@ -99,14 +111,18 @@ export default function ResultsPanel({ chunks, isStreaming = false, windowSize }
                 Latest chunk #{lastChunk.index + 1} · {lastChunk.startSec.toFixed(1)}s
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                {lastChunk.results.map((r) => (
-                  <Chip
-                    key={r.model_id}
-                    label={`${r.prediction} · ${(r.confidence * 100).toFixed(0)}%`}
-                    color={r.prediction === 'synthetic' ? 'error' : 'success'}
-                    size="small"
-                  />
-                ))}
+                {lastChunk.isSilent ? (
+                  <Chip label="silence" size="small" variant="outlined" />
+                ) : (
+                  lastChunk.results.map((r) => (
+                    <Chip
+                      key={r.model_id}
+                      label={`${r.prediction} · ${(r.confidence * 100).toFixed(0)}%`}
+                      color={r.prediction === 'synthetic' ? 'error' : 'success'}
+                      size="small"
+                    />
+                  ))
+                )}
               </Stack>
             </Stack>
           </CardContent>

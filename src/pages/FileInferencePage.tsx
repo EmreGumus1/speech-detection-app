@@ -13,9 +13,9 @@ import WaveformPanel from '../dashboard/components/WaveformPanel';
 import { predictFile } from '../api/inference';
 import { transcribeFile, type TranscribeResult } from '../api/whisper';
 import { splitAudioFileIntoWavChunks } from '../utils/audioChunking';
+import { isSilentChunk } from '../utils/silence';
 
 const CHUNK_DURATION_SEC = 3;
-const SILENCE_RMS_THRESHOLD = 0.008;
 
 export default function FileInferencePage() {
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
@@ -60,8 +60,7 @@ export default function FileInferencePage() {
       for (let i = 0; i < wavChunks.length; i++) {
         const { wav, samples, sampleRate } = wavChunks[i];
         const startSec = i * CHUNK_DURATION_SEC;
-        const rms = Math.sqrt(samples.reduce((sum, s) => sum + s * s, 0) / samples.length);
-        const isSilent = rms <= SILENCE_RMS_THRESHOLD;
+        const isSilent = isSilentChunk(samples);
 
         if (isSilent) {
           // Skip deepfake inference on silence (bogus scores); keep the chunk in
@@ -73,6 +72,7 @@ export default function FileInferencePage() {
               startSec,
               durationSec: CHUNK_DURATION_SEC,
               results: [],
+              isSilent: true,
               samples,
               sampleRate,
             },

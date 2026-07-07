@@ -7,6 +7,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import Tooltip from '@mui/material/Tooltip';
 import Alert from '@mui/material/Alert';
 import { getModels } from '../../api/inference';
 
@@ -15,7 +16,14 @@ type ModelItem = {
   name: string;
   framework: string;
   supports_realtime: boolean;
+  /** Optional — newer backends report download state; absent means usable. */
+  is_downloaded?: boolean;
 };
+
+// Selecting a model the backend hasn't downloaded yields empty/errored results
+// (which renders as an all-gray waveform with no verdict), so treat those as
+// unavailable. Backends without the field are assumed ready.
+const isAvailable = (m: ModelItem) => m.is_downloaded !== false;
 
 type ModelSelectorPanelProps = {
   selectedModels: string[];
@@ -38,9 +46,10 @@ export default function ModelSelectorPanel({
       .then((data: ModelItem[]) => {
         if (!cancelled) {
           setModels(data);
-          // Auto-select first model if none selected
-          if (selectedModels.length === 0 && data.length > 0) {
-            onChange([data[0].id]);
+          // Auto-select the first usable model if none selected
+          if (selectedModels.length === 0) {
+            const first = data.find(isAvailable);
+            if (first) onChange([first.id]);
           }
         }
       })
@@ -100,17 +109,25 @@ export default function ModelSelectorPanel({
                 borderColor: selectedModels.includes(model.id) ? 'primary.main' : 'divider',
                 borderRadius: 2,
                 p: 1.5,
+                opacity: isAvailable(model) ? 1 : 0.6,
               }}
             >
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={selectedModels.includes(model.id)}
-                    onChange={() => toggleModel(model.id)}
-                  />
-                }
-                label={model.name}
-              />
+              <Tooltip
+                title={isAvailable(model) ? '' : 'Not downloaded — visit the Models page to download it first'}
+                placement="left"
+                disableHoverListener={isAvailable(model)}
+              >
+                <FormControlLabel
+                  disabled={!isAvailable(model)}
+                  control={
+                    <Checkbox
+                      checked={selectedModels.includes(model.id)}
+                      onChange={() => toggleModel(model.id)}
+                    />
+                  }
+                  label={model.name}
+                />
+              </Tooltip>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip label={model.framework} size="small" />
                 <Chip
@@ -118,6 +135,9 @@ export default function ModelSelectorPanel({
                   color={model.supports_realtime ? 'success' : 'default'}
                   size="small"
                 />
+                {!isAvailable(model) && (
+                  <Chip label="Not downloaded" color="warning" size="small" variant="outlined" />
+                )}
               </Stack>
             </Stack>
           ))}

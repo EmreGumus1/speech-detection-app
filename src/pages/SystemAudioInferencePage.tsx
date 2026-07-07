@@ -31,12 +31,12 @@ import { createTranscribeSession, type TranscribeResult, type WarmupProgress } f
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 import { aggregateChunks } from '../utils/aggregateChunks';
 import { mergeScamResult } from '../utils/mergeScamResult';
+import { isSilentChunk } from '../utils/silence';
 import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 3;
 const SYNTHETIC_ALERT_THRESHOLD = 0.6;
 const ALERT_COOLDOWN_MS = 5_000;
-const SILENCE_RMS_THRESHOLD = 0.008;
 const LIVE_WINDOW_CHUNKS = 10; // moving-window size for live verdict + alerts
 
 export default function SystemAudioInferencePage() {
@@ -149,23 +149,23 @@ export default function SystemAudioInferencePage() {
       selectedModels,
       (data) => {
         const payload = data as { duration_sec?: number; results?: ChunkResult['results']; error?: string };
-        if (payload.error) {
-          pendingSamplesRef.current.shift();
-          setError(payload.error);
+        if (!payload.results && !payload.error) {
+          // Not a per-chunk response (e.g. status message) — don't touch the
+          // pending queue or the alignment with sent chunks breaks.
+          console.warn('Unexpected /ws/predict message:', payload);
           return;
         }
-        if (!payload.results) return;
         const pending = pendingSamplesRef.current.shift();
+        if (payload.error) setError(payload.error);
 
-        // Silence chunks: drop the (bogus) deepfake result, keep the chunk in
-        // the timeline so the waveform shows a flat gray segment.
-        const results = pending?.isSilent ? [] : payload.results;
+        // Silence (or errored) chunks: drop the (bogus) deepfake result, keep
+        // the chunk in the timeline so the waveform shows a flat gray segment.
+        const isSilent = pending?.isSilent ?? false;
+        const results = payload.error || isSilent ? [] : payload.results!;
 
-        if (!pending?.isSilent) {
-          payload.results.forEach((r) => {
-            recordChunk(r.prediction as 'synthetic' | 'real', r.inference_time_ms ?? 0);
-          });
-        }
+        results.forEach((r) => {
+          recordChunk(r.prediction as 'synthetic' | 'real', r.inference_time_ms ?? 0);
+        });
 
         setChunks((prev) => {
           const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
@@ -176,6 +176,7 @@ export default function SystemAudioInferencePage() {
               startSec,
               durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
               results,
+              isSilent,
               samples: pending?.samples,
               sampleRate: pending?.sampleRate,
             },
@@ -207,8 +208,7 @@ export default function SystemAudioInferencePage() {
       audioStream,
       CHUNK_DURATION_SEC,
       (wav, _dur, samples, sampleRate) => {
-        const rms = Math.sqrt(samples.reduce((sum, s) => sum + s * s, 0) / samples.length);
-        const isSilent = rms <= SILENCE_RMS_THRESHOLD;
+        const isSilent = isSilentChunk(samples);
         if (!isSilent) {
           lastSignificantAudioRef.current = Date.now();
           hasReceivedSignalRef.current = true;

@@ -252,6 +252,18 @@ export default function WaveformPanel({
             <Typography variant="caption" color="text.secondary">
               synthetic
             </Typography>
+            <Box
+              sx={{
+                width: 24,
+                height: 8,
+                borderRadius: 1,
+                bgcolor: 'action.disabled',
+                ml: 1,
+              }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              silence
+            </Typography>
           </Stack>
         </Stack>
       </CardContent>

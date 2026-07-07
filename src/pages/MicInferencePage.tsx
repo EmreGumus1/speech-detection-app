@@ -17,10 +17,10 @@ import { createRealtimeSession } from '../api/inference';
 import { createTranscribeSession, type TranscribeResult, type WarmupProgress } from '../api/whisper';
 import { createPcmStreamRecorder, type PcmStreamRecorder } from '../utils/pcmStreamRecorder';
 import { mergeScamResult } from '../utils/mergeScamResult';
+import { isSilentChunk } from '../utils/silence';
 import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 1;
-const SILENCE_RMS_THRESHOLD = 0.008; // below this = silence
 const LIVE_WINDOW_CHUNKS = 10; // moving-window size for the live verdict
 
 export default function MicInferencePage() {
@@ -108,26 +108,26 @@ export default function MicInferencePage() {
             results?: ChunkResult['results'];
             error?: string;
           };
-          if (payload.error) {
-            pendingSamplesRef.current.shift();
-            setError(payload.error);
+          if (!payload.results && !payload.error) {
+            // Not a per-chunk response (e.g. status message) — don't touch the
+            // pending queue or the alignment with sent chunks breaks.
+            console.warn('Unexpected /ws/predict message:', payload);
             return;
           }
-          if (!payload.results) return;
           const pending = pendingSamplesRef.current.shift();
+          if (payload.error) setError(payload.error);
 
-          // Silence chunks: drop the (bogus) deepfake result, keep the chunk in
-          // the timeline so the waveform shows a flat gray segment.
-          const results = pending?.isSilent ? [] : payload.results;
+          // Silence (or errored) chunks: drop the (bogus) deepfake result, keep
+          // the chunk in the timeline so the waveform shows a flat gray segment.
+          const isSilent = pending?.isSilent ?? false;
+          const results = payload.error || isSilent ? [] : payload.results!;
 
-          if (!pending?.isSilent) {
-            payload.results.forEach((r) => {
-              recordChunk(
-                r.prediction as 'synthetic' | 'real',
-                r.inference_time_ms ?? 0,
-              );
-            });
-          }
+          results.forEach((r) => {
+            recordChunk(
+              r.prediction as 'synthetic' | 'real',
+              r.inference_time_ms ?? 0,
+            );
+          });
 
           setChunks((prev) => {
             const startSec = prev.reduce((acc, c) => acc + c.durationSec, 0);
@@ -138,6 +138,7 @@ export default function MicInferencePage() {
                 startSec,
                 durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
                 results,
+                isSilent,
                 samples: pending?.samples,
                 sampleRate: pending?.sampleRate,
               },
@@ -171,10 +172,7 @@ export default function MicInferencePage() {
         stream,
         CHUNK_DURATION_SEC,
         (wavBlob, _dur, samples, sampleRate) => {
-          const rms = Math.sqrt(
-            samples.reduce((sum, s) => sum + s * s, 0) / samples.length,
-          );
-          const isSilent = rms <= SILENCE_RMS_THRESHOLD;
+          const isSilent = isSilentChunk(samples);
           if (!isSilent) lastSignificantAudioRef.current = Date.now();
           // Send to both backends regardless to keep the timing windows aligned
           // (Whisper's window_start_sec must match cumulative chunk.startSec on
