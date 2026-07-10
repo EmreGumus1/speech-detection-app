@@ -20,11 +20,10 @@ import { mergeScamResult } from '../utils/mergeScamResult';
 import { isSilentChunk } from '../utils/silence';
 import { useSession } from '../context/SessionContext';
 
-const CHUNK_DURATION_SEC = 1;
-const LIVE_WINDOW_CHUNKS = 30; // rolling window shown in ResultsPanel (30 × 1 s = 30 s)
-
 export default function MicInferencePage() {
   const { settings, recordChunk } = useSession();
+  // Chunk duration and moving-average window come from the Settings page.
+  const chunkDurationSec = settings.chunkDurationSec;
 
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
   const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
@@ -142,7 +141,7 @@ export default function MicInferencePage() {
               {
                 index: prev.length,
                 startSec,
-                durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
+                durationSec: payload.duration_sec ?? chunkDurationSec,
                 results,
                 isSilent,
                 samples: pending?.samples,
@@ -176,9 +175,9 @@ export default function MicInferencePage() {
 
       const recorder = createPcmStreamRecorder(
         stream,
-        CHUNK_DURATION_SEC,
+        chunkDurationSec,
         (wavBlob, _dur, samples, sampleRate) => {
-          const isSilent = isSilentChunk(samples);
+          const isSilent = isSilentChunk(samples, settings.silenceRmsThreshold);
           if (!isSilent) lastSignificantAudioRef.current = Date.now();
           // Send to both backends regardless to keep the timing windows aligned
           // (Whisper's window_start_sec must match cumulative chunk.startSec on
@@ -275,11 +274,11 @@ export default function MicInferencePage() {
 
             <WaveformPanel
               chunks={chunks}
-              chunkDurationSec={CHUNK_DURATION_SEC}
+              chunkDurationSec={chunkDurationSec}
               isStreaming={isRecording}
             />
 
-            <ResultsPanel chunks={chunks} isStreaming={isRecording} windowSize={LIVE_WINDOW_CHUNKS} />
+            <ResultsPanel chunks={chunks} isStreaming={isRecording} windowSize={settings.liveWindowChunks} />
 
             <ScamResultPanel
               result={scamResult}

@@ -14,24 +14,46 @@ export type SessionStats = {
 export type SessionSettings = {
   /** Seconds of silence before auto-stopping recording. 0 = disabled. */
   silenceTimeoutSec: number;
+  /** Seconds of audio to record before sending each chunk for inference. */
+  chunkDurationSec: number;
+  /** Number of recent chunks in the moving-average window for the live verdict. */
+  liveWindowChunks: number;
+  /** Alert when the moving average of p(synthetic) is at or above this (0–1). */
+  alertThreshold: number;
+  /** Minimum seconds between repeated synthetic-speech alerts. */
+  alertCooldownSec: number;
+  /** RMS level below which a chunk counts as silence (peak gate is 5× this). */
+  silenceRmsThreshold: number;
+  /** Initial state of the "Alerts" switch on capture pages. */
+  alertsDefaultOn: boolean;
 };
 
 type SessionState = SessionStats & SessionSettings;
 
 type SessionAction =
   | { type: 'RECORD_CHUNK'; prediction: 'synthetic' | 'real'; latencyMs: number }
-  | { type: 'SET_SILENCE_TIMEOUT'; seconds: number };
+  | { type: 'UPDATE_SETTINGS'; patch: Partial<SessionSettings> };
 
 // ---------------------------------------------------------------------------
 // Reducer
 // ---------------------------------------------------------------------------
+
+const DEFAULT_SETTINGS: SessionSettings = {
+  silenceTimeoutSec: 0,
+  chunkDurationSec: 3,
+  liveWindowChunks: 10,
+  alertThreshold: 0.6,
+  alertCooldownSec: 5,
+  silenceRmsThreshold: 0.008,
+  alertsDefaultOn: true,
+};
 
 const initialState: SessionState = {
   totalRuns: 0,
   syntheticDetections: 0,
   realDetections: 0,
   totalLatencyMs: 0,
-  silenceTimeoutSec: 0,
+  ...DEFAULT_SETTINGS,
 };
 
 function reducer(state: SessionState, action: SessionAction): SessionState {
@@ -50,8 +72,8 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
             : state.realDetections,
         totalLatencyMs: state.totalLatencyMs + action.latencyMs,
       };
-    case 'SET_SILENCE_TIMEOUT':
-      return { ...state, silenceTimeoutSec: action.seconds };
+    case 'UPDATE_SETTINGS':
+      return { ...state, ...action.patch };
     default:
       return state;
   }
@@ -65,7 +87,7 @@ type SessionContextValue = {
   stats: SessionStats;
   settings: SessionSettings;
   recordChunk: (prediction: 'synthetic' | 'real', latencyMs: number) => void;
-  setSilenceTimeout: (seconds: number) => void;
+  updateSettings: (patch: Partial<SessionSettings>) => void;
 };
 
 const SessionContext = React.createContext<SessionContextValue | null>(null);
@@ -84,8 +106,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const setSilenceTimeout = React.useCallback((seconds: number) => {
-    dispatch({ type: 'SET_SILENCE_TIMEOUT', seconds });
+  const updateSettings = React.useCallback((patch: Partial<SessionSettings>) => {
+    dispatch({ type: 'UPDATE_SETTINGS', patch });
   }, []);
 
   const value = React.useMemo<SessionContextValue>(
@@ -96,11 +118,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         realDetections: state.realDetections,
         totalLatencyMs: state.totalLatencyMs,
       },
-      settings: { silenceTimeoutSec: state.silenceTimeoutSec },
+      settings: {
+        silenceTimeoutSec: state.silenceTimeoutSec,
+        chunkDurationSec: state.chunkDurationSec,
+        liveWindowChunks: state.liveWindowChunks,
+        alertThreshold: state.alertThreshold,
+        alertCooldownSec: state.alertCooldownSec,
+        silenceRmsThreshold: state.silenceRmsThreshold,
+        alertsDefaultOn: state.alertsDefaultOn,
+      },
       recordChunk,
-      setSilenceTimeout,
+      updateSettings,
     }),
-    [state, recordChunk, setSilenceTimeout],
+    [state, recordChunk, updateSettings],
   );
 
   return (

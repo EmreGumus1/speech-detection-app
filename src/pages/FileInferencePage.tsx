@@ -14,10 +14,12 @@ import { predictFile } from '../api/inference';
 import { transcribeFile, type TranscribeResult } from '../api/whisper';
 import { splitAudioFileIntoWavChunks } from '../utils/audioChunking';
 import { isSilentChunk } from '../utils/silence';
+import { useSession } from '../context/SessionContext';
 
 const CHUNK_DURATION_SEC = 3;
 
 export default function FileInferencePage() {
+  const { settings } = useSession();
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
   const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
@@ -60,7 +62,7 @@ export default function FileInferencePage() {
       for (let i = 0; i < wavChunks.length; i++) {
         const { wav, samples, sampleRate } = wavChunks[i];
         const startSec = i * CHUNK_DURATION_SEC;
-        const isSilent = isSilentChunk(samples);
+        const isSilent = isSilentChunk(samples, settings.silenceRmsThreshold);
 
         if (isSilent) {
           // Skip deepfake inference on silence (bogus scores); keep the chunk in

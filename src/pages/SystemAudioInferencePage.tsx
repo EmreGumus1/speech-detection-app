@@ -34,13 +34,11 @@ import { mergeScamResult } from '../utils/mergeScamResult';
 import { isSilentChunk } from '../utils/silence';
 import { useSession } from '../context/SessionContext';
 
-const CHUNK_DURATION_SEC = 3;
-const SYNTHETIC_ALERT_THRESHOLD = 0.6;
-const ALERT_COOLDOWN_MS = 5_000;
-const LIVE_WINDOW_CHUNKS = 10; // moving-window size for live verdict + alerts
-
 export default function SystemAudioInferencePage() {
   const { settings, recordChunk } = useSession();
+  // Chunk duration, moving-average window, alert threshold and cooldown all
+  // come from the Settings page (SessionContext).
+  const chunkDurationSec = settings.chunkDurationSec;
   const [selectedModels, setSelectedModels] = React.useState<string[]>([]);
   const [chunks, setChunks] = React.useState<ChunkResult[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -52,7 +50,7 @@ export default function SystemAudioInferencePage() {
   const [alertOpen, setAlertOpen] = React.useState(false);
   const [alertMsg, setAlertMsg] = React.useState('');
   const [alertKey, setAlertKey] = React.useState(0);
-  const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = React.useState(settings.alertsDefaultOn);
   const [silenceAlert, setSilenceAlert] = React.useState<string | null>(null);
 
   // Whisper state
@@ -72,12 +70,15 @@ export default function SystemAudioInferencePage() {
   const pendingSamplesRef = React.useRef<Array<{ samples: Float32Array; sampleRate: number; isSilent: boolean }>>([]);
   const lastSignificantAudioRef = React.useRef<number>(0);
 
-  const aggregated = React.useMemo(() => aggregateChunks(chunks, LIVE_WINDOW_CHUNKS), [chunks]);
+  const aggregated = React.useMemo(
+    () => aggregateChunks(chunks, settings.liveWindowChunks),
+    [chunks, settings.liveWindowChunks],
+  );
 
   React.useEffect(() => {
     if (!notificationsEnabled) return;
     if (aggregated.length === 0) return;
-    const triggered = aggregated.filter((row) => row.avgSyntheticProb >= SYNTHETIC_ALERT_THRESHOLD);
+    const triggered = aggregated.filter((row) => row.avgSyntheticProb >= settings.alertThreshold);
 
     if (triggered.length === 0) {
       lastAlertTimeRef.current = 0;
@@ -85,7 +86,7 @@ export default function SystemAudioInferencePage() {
     }
 
     const now = Date.now();
-    if (now - lastAlertTimeRef.current < ALERT_COOLDOWN_MS) return;
+    if (now - lastAlertTimeRef.current < settings.alertCooldownSec * 1000) return;
     lastAlertTimeRef.current = now;
 
     const summary = triggered
@@ -108,7 +109,7 @@ export default function SystemAudioInferencePage() {
         console.warn('Notification failed:', err);
       }
     }
-  }, [aggregated, notificationsEnabled]);
+  }, [aggregated, notificationsEnabled, settings.alertThreshold, settings.alertCooldownSec]);
 
   const requestNotificationPermission = () => {
     if (typeof Notification === 'undefined') return;
@@ -174,7 +175,7 @@ export default function SystemAudioInferencePage() {
             {
               index: prev.length,
               startSec,
-              durationSec: payload.duration_sec ?? CHUNK_DURATION_SEC,
+              durationSec: payload.duration_sec ?? chunkDurationSec,
               results,
               isSilent,
               samples: pending?.samples,
@@ -206,9 +207,9 @@ export default function SystemAudioInferencePage() {
     const audioStream = new MediaStream(stream.getAudioTracks());
     const recorder = createPcmStreamRecorder(
       audioStream,
-      CHUNK_DURATION_SEC,
+      chunkDurationSec,
       (wav, _dur, samples, sampleRate) => {
-        const isSilent = isSilentChunk(samples);
+        const isSilent = isSilentChunk(samples, settings.silenceRmsThreshold);
         if (!isSilent) {
           lastSignificantAudioRef.current = Date.now();
         }
@@ -322,7 +323,7 @@ export default function SystemAudioInferencePage() {
       <div>
         <Typography variant="h4" gutterBottom>System Audio Capture</Typography>
         <Typography variant="body1" color="text.secondary">
-          Capture what's playing on your system — inference runs every {CHUNK_DURATION_SEC} seconds in real time.
+          Capture what's playing on your system — inference runs every {chunkDurationSec} seconds in real time.
           {settings.silenceTimeoutSec > 0 && (
             <> Auto-stops after {settings.silenceTimeoutSec}s of silence.</>
           )}
@@ -463,11 +464,11 @@ export default function SystemAudioInferencePage() {
 
             <WaveformPanel
               chunks={chunks}
-              chunkDurationSec={CHUNK_DURATION_SEC}
+              chunkDurationSec={chunkDurationSec}
               isStreaming={isCapturing}
             />
 
-            <ResultsPanel chunks={chunks} isStreaming={isCapturing} windowSize={LIVE_WINDOW_CHUNKS} />
+            <ResultsPanel chunks={chunks} isStreaming={isCapturing} windowSize={settings.liveWindowChunks} />
 
             <ScamResultPanel
               result={scamResult}

@@ -7,9 +7,13 @@
  * waveform render gray with no live verdict.
  */
 export const SILENCE_RMS_THRESHOLD = 0.008;
-export const SILENCE_PEAK_THRESHOLD = 0.04;
+/** The peak gate scales with the RMS threshold (0.008 → 0.04 by default). */
+const PEAK_TO_RMS_FACTOR = 5;
 
-export function isSilentChunk(samples: Float32Array): boolean {
+export function isSilentChunk(
+  samples: Float32Array,
+  rmsThreshold: number = SILENCE_RMS_THRESHOLD,
+): boolean {
   let sumSq = 0;
   let peak = 0;
   for (let i = 0; i < samples.length; i++) {
@@ -19,5 +23,5 @@ export function isSilentChunk(samples: Float32Array): boolean {
     if (a > peak) peak = a;
   }
   const rms = Math.sqrt(sumSq / samples.length);
-  return rms <= SILENCE_RMS_THRESHOLD && peak <= SILENCE_PEAK_THRESHOLD;
+  return rms <= rmsThreshold && peak <= rmsThreshold * PEAK_TO_RMS_FACTOR;
 }
