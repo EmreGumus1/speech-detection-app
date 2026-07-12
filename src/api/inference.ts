@@ -1,3 +1,5 @@
+import { fixMojibakeFields } from '../utils/fixMojibake';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws');
 
@@ -26,7 +28,9 @@ export async function predictFile(
 export async function getModels() {
   const response = await fetch(`${API_BASE_URL}/models`);
   if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  const data = await response.json();
+  // Model names/descriptions from the backend can arrive with broken encoding.
+  return Array.isArray(data) ? data.map(fixMojibakeFields) : data;
 }
 
 export async function getModelStatus(modelId: string): Promise<{
