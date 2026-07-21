@@ -1,3 +1,25 @@
+# Speech Detection App
+
+## Getting Started
+
+```bash
+npm install        # install dependencies
+npm run dev        # start the Vite dev server (frontend)
+```
+
+The dev server prints a local URL (default http://localhost:5173) — open it in your browser.
+
+Inference is handled by an external backend API. Set `VITE_API_BASE_URL` to point at it (defaults to `http://127.0.0.1:8000`), e.g. create a `.env` file with:
+
+```
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Other commands: `npm run build` (production build), `npm run preview` (preview the build), `npm run lint`.
+
+---
+Below here you will find the default README that React Generates. 
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
